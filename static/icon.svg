@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Note Speak">
+	<defs>
+		<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0%" stop-color="#3b3b3b" />
+			<stop offset="100%" stop-color="#111111" />
+		</linearGradient>
+	</defs>
+	<rect width="512" height="512" rx="112" fill="url(#bg)" />
+	<!-- note sheet -->
+	<rect x="128" y="104" width="256" height="304" rx="32" fill="#fafafa" />
+	<g stroke="#a3a3a3" stroke-width="16" stroke-linecap="round">
+		<line x1="172" y1="168" x2="340" y2="168" />
+		<line x1="172" y1="220" x2="340" y2="220" />
+		<line x1="172" y1="272" x2="284" y2="272" />
+	</g>
+	<!-- microphone badge -->
+	<circle cx="340" cy="352" r="84" fill="#dc2626" />
+	<rect x="322" y="310" width="36" height="52" rx="18" fill="#ffffff" />
+	<path
+		d="M306 350a34 34 0 0 0 68 0"
+		fill="none"
+		stroke="#ffffff"
+		stroke-width="14"
+		stroke-linecap="round"
+	/>
+	<line
+		x1="340"
+		y1="384"
+		x2="340"
+		y2="400"
+		stroke="#ffffff"
+		stroke-width="14"
+		stroke-linecap="round"
+	/>
+</svg>

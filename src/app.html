@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<!-- interactive-widget: Chrome/Android shrinks the layout viewport for the keyboard
+		     instead of overlaying it. iOS ignores it — visualViewport handles that case. -->
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+		/>
+		<meta name="text-scale" content="scale" />
+		<!-- In the document head rather than <svelte:head> so the browser never falls back to /favicon.ico -->
+		<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+		<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="Notes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
