@@ -11,6 +11,10 @@
 	import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon';
 	import Folder01Icon from '@hugeicons/core-free-icons/Folder01Icon';
 	import Menu01Icon from '@hugeicons/core-free-icons/Menu01Icon';
+	import ArrowUpDownIcon from '@hugeicons/core-free-icons/ArrowUpDownIcon';
+	import Download04Icon from '@hugeicons/core-free-icons/Download04Icon';
+	import PinIcon from '@hugeicons/core-free-icons/PinIcon';
+	import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
 
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
@@ -19,7 +23,8 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Empty from '$lib/components/ui/empty';
-	import { notes } from '$lib/stores/notes.svelte';
+	import { notes, SORT_LABELS, type SortBy } from '$lib/stores/notes.svelte';
+	import { exportNoteMarkdown } from '$lib/data/transfer';
 	import { noteTitle, notePreview, type Note } from '$lib/types';
 	import { dur } from '$lib/motion.svelte';
 
@@ -73,7 +78,7 @@
 	}
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-background">
+<div class="flex h-full min-h-0 flex-col glass">
 	<header class="flex flex-col gap-2 px-3 pt-3 safe-t pb-2">
 		<div class="flex items-center gap-1">
 			{#if compact}
@@ -88,6 +93,33 @@
 					>
 				{/if}
 			{:else}
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Sort notes by {SORT_LABELS[notes.prefs.sortBy ?? 'updated']}"
+							>
+								<HugeiconsIcon icon={ArrowUpDownIcon} strokeWidth={2} />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end">
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>Sort by</DropdownMenu.Label>
+							{#each Object.entries(SORT_LABELS) as [value, label] (value)}
+								<DropdownMenu.CheckboxItem
+									checked={(notes.prefs.sortBy ?? 'updated') === value}
+									onCheckedChange={() => notes.setPref('sortBy', value as SortBy)}
+								>
+									{label}
+								</DropdownMenu.CheckboxItem>
+							{/each}
+						</DropdownMenu.Group>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
 				<Button variant="ghost" size="icon-sm" onclick={oncreate} aria-label="New note">
 					<HugeiconsIcon icon={NoteAddIcon} strokeWidth={2} />
 				</Button>
@@ -178,7 +210,19 @@
 							aria-current={note.id === selectedId ? 'true' : undefined}
 							onclick={() => onselect(note.id)}
 						>
-							<span class="w-full truncate text-sm font-medium">{noteTitle(note)}</span>
+							<span class="flex w-full items-center gap-1.5">
+								{#if note.pinnedAt !== null}
+									<HugeiconsIcon
+										icon={PinIcon}
+										strokeWidth={2}
+										class="size-3 shrink-0 {note.id === selectedId
+											? 'text-note-accent-foreground/80'
+											: 'text-muted-foreground'}"
+										aria-label="Pinned"
+									/>
+								{/if}
+								<span class="truncate text-sm font-medium">{noteTitle(note)}</span>
+							</span>
 							<span
 								class="flex w-full items-baseline gap-1.5 text-xs {note.id === selectedId
 									? 'text-note-accent-foreground/75'
@@ -243,6 +287,17 @@
 									</DropdownMenu.Group>
 									<DropdownMenu.Separator />
 									<DropdownMenu.Group>
+										<DropdownMenu.Item onSelect={() => notes.togglePin(note.id)}>
+											<HugeiconsIcon
+												icon={note.pinnedAt === null ? PinIcon : PinOffIcon}
+												strokeWidth={2}
+											/>
+											{note.pinnedAt === null ? 'Pin to top' : 'Unpin'}
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onSelect={() => exportNoteMarkdown(note)}>
+											<HugeiconsIcon icon={Download04Icon} strokeWidth={2} />
+											Export as Markdown
+										</DropdownMenu.Item>
 										<DropdownMenu.Item variant="destructive" onSelect={() => trash(note)}>
 											<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
 											Move to Trash

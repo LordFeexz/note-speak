@@ -46,6 +46,26 @@
 	/* "Waveform blue" — selected note row and editor focus. */
 	--note-accent: oklch(0.55 0.19 258);
 	--note-accent-foreground: oklch(0.985 0 0);
+
+	/* ---- Material glass ----
+	   Two fills, deliberately: chrome can afford to be see-through, but body text
+	   over a blurred backdrop is where glassmorphism reliably fails contrast, so
+	   the editor gets a much more opaque scrim. */
+	--glass-bg: oklch(1 0 0 / 0.55);
+	--glass-bg-strong: oklch(1 0 0 / 0.82);
+	--glass-border: oklch(1 0 0 / 0.5);
+	--glass-blur: 16px;
+	--glass-blur-lg: 24px;
+	/* The saturation boost is what reads as "glass" rather than "translucent". */
+	--glass-saturate: 180%;
+	--glass-shadow: 0 8px 32px oklch(0 0 0 / 0.1);
+
+	/* Ambient wash behind the glass. Blurring a flat colour produces a flat
+	   colour — these are the thing being blurred. */
+	--ambient-1: oklch(0.85 0.11 258 / 0.55);
+	--ambient-2: oklch(0.88 0.09 320 / 0.45);
+	--ambient-3: oklch(0.9 0.1 190 / 0.4);
+	--ambient-base: oklch(0.98 0.005 260);
 }
 
 .dark {
@@ -84,6 +104,18 @@
 	--recording: oklch(0.704 0.191 22.216);
 	--note-accent: oklch(0.62 0.19 258);
 	--note-accent-foreground: oklch(0.985 0 0);
+
+	/* Dark glass is darker *and* less transparent: light text over a bright
+	   ambient blob loses contrast far faster than dark text over a pale one. */
+	--glass-bg: oklch(0.22 0.008 260 / 0.55);
+	--glass-bg-strong: oklch(0.19 0.008 260 / 0.86);
+	--glass-border: oklch(1 0 0 / 0.12);
+	--glass-shadow: 0 8px 32px oklch(0 0 0 / 0.45);
+
+	--ambient-1: oklch(0.45 0.14 262 / 0.45);
+	--ambient-2: oklch(0.4 0.13 320 / 0.38);
+	--ambient-3: oklch(0.45 0.1 195 / 0.32);
+	--ambient-base: oklch(0.145 0.006 260);
 }
 
 @theme inline {
@@ -140,11 +172,21 @@
 	}
 	html {
 		@apply font-sans;
-		/* The app owns the whole viewport; only inner panes scroll. */
-		@apply h-full overflow-hidden overscroll-none;
 	}
 	body {
-		@apply h-full;
+		@apply min-h-full;
+	}
+	/*
+	 * Locking the viewport is opt-in, added by the app layout.
+	 *
+	 * The app owns the whole screen and only its inner panes scroll, but the same
+	 * rule on `html` globally made the marketing and legal pages unscrollable.
+	 * Opt-in rather than opt-out, because the app is the page that already
+	 * requires JS — the content pages must behave correctly without it.
+	 */
+	html.app-viewport,
+	html.app-viewport body {
+		@apply h-full overflow-hidden overscroll-none;
 	}
 }
 
@@ -179,6 +221,348 @@
 
 @utility recording-pulse {
 	animation: recording-ring 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ---- Editor ----
+   Scoped to the ProseMirror surface rather than using @tailwindcss/typography's
+   `prose`, which sizes for articles and fights the app's compact density. */
+
+.note-prose {
+	min-height: 100%;
+	font-size: 1rem;
+	line-height: 1.65;
+	outline: none;
+}
+
+.note-prose > * + * {
+	margin-top: 0.75em;
+}
+
+.note-prose h1,
+.note-prose h2,
+.note-prose h3 {
+	font-weight: 600;
+	line-height: 1.3;
+}
+.note-prose h1 {
+	font-size: 1.5rem;
+}
+.note-prose h2 {
+	font-size: 1.25rem;
+}
+.note-prose h3 {
+	font-size: 1.1rem;
+}
+
+.note-prose ul,
+.note-prose ol {
+	padding-left: 1.5rem;
+}
+.note-prose ul {
+	list-style: disc;
+}
+.note-prose ol {
+	list-style: decimal;
+}
+.note-prose li > p {
+	margin: 0;
+}
+
+.note-prose blockquote {
+	border-left: 3px solid var(--border);
+	padding-left: 0.875rem;
+	color: var(--muted-foreground);
+}
+
+.note-prose code {
+	background: var(--muted);
+	border-radius: var(--radius-sm);
+	padding: 0.1em 0.3em;
+	font-size: 0.9em;
+}
+.note-prose pre {
+	background: var(--muted);
+	border-radius: var(--radius-md);
+	padding: 0.75rem 1rem;
+	overflow-x: auto;
+}
+.note-prose pre code {
+	background: none;
+	padding: 0;
+}
+
+.note-prose a {
+	color: var(--note-accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.note-prose hr {
+	border-top: 1px solid var(--border);
+}
+
+/* Checklists. The whole point of leaving <textarea> behind, so the checkbox is
+   a real 44px-friendly target rather than literal "- [ ]" characters. */
+.note-prose ul[data-type='taskList'] {
+	list-style: none;
+	padding-left: 0;
+}
+
+.note-prose ul[data-type='taskList'] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.625rem;
+}
+
+.note-prose ul[data-type='taskList'] li > label {
+	display: flex;
+	align-items: center;
+	/* Pads the hit area to a comfortable target without moving the box itself. */
+	min-height: 1.65em;
+	padding-right: 0.125rem;
+	flex: 0 0 auto;
+	user-select: none;
+}
+
+.note-prose ul[data-type='taskList'] li > div {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.note-prose ul[data-type='taskList'] input[type='checkbox'] {
+	width: 1.05rem;
+	height: 1.05rem;
+	accent-color: var(--note-accent);
+	cursor: pointer;
+}
+
+.note-prose ul[data-type='taskList'] li[data-checked='true'] > div {
+	color: var(--muted-foreground);
+	text-decoration: line-through;
+}
+
+/* ---- Material glass ---- */
+
+@utility glass {
+	background: var(--glass-bg);
+	backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+/* For surfaces that carry body text — a much more opaque scrim. */
+@utility glass-strong {
+	background: var(--glass-bg-strong);
+	backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+	-webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+}
+
+@utility glass-panel {
+	background: var(--glass-bg);
+	backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+	-webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+	border: 1px solid var(--glass-border);
+	box-shadow: var(--glass-shadow);
+	border-radius: var(--radius-lg);
+}
+
+@utility glass-hairline {
+	border-color: var(--glass-border);
+}
+
+/**
+ * The ambient wash every glass surface is blurring.
+ *
+ * Fixed and behind everything, so panes composite against one continuous
+ * gradient instead of each carrying their own. Animated with `transform` only.
+ */
+.ambient-backdrop {
+	position: fixed;
+	inset: -20%;
+	z-index: -1;
+	pointer-events: none;
+	background:
+		radial-gradient(38rem 30rem at 12% 18%, var(--ambient-1), transparent 62%),
+		radial-gradient(34rem 28rem at 88% 12%, var(--ambient-2), transparent 60%),
+		radial-gradient(42rem 34rem at 62% 88%, var(--ambient-3), transparent 64%);
+	animation: ambient-drift 42s ease-in-out infinite alternate;
+	will-change: transform;
+}
+
+body {
+	background: var(--ambient-base);
+}
+
+@keyframes ambient-drift {
+	0% {
+		transform: translate3d(0, 0, 0) scale(1);
+	}
+	50% {
+		transform: translate3d(2%, -1.5%, 0) scale(1.06);
+	}
+	100% {
+		transform: translate3d(-1.5%, 2%, 0) scale(1.03);
+	}
+}
+
+/**
+ * Guard 1 — no backdrop-filter support (Firefox without the flag).
+ * Falling through would leave genuinely transparent, unreadable panels.
+ */
+@supports not (backdrop-filter: blur(1px)) {
+	:root {
+		--glass-bg: var(--background);
+		--glass-bg-strong: var(--background);
+	}
+	.dark {
+		--glass-bg: var(--background);
+		--glass-bg-strong: var(--background);
+	}
+	.ambient-backdrop {
+		display: none;
+	}
+}
+
+/**
+ * Guard 2 — the user has asked the OS for less transparency. A real
+ * accessibility setting, and the honest escape hatch for anyone who finds
+ * frosted panels hard to read.
+ */
+@media (prefers-reduced-transparency: reduce) {
+	:root,
+	.dark {
+		--glass-bg: var(--background);
+		--glass-bg-strong: var(--background);
+	}
+	.glass,
+	.glass-strong,
+	.glass-panel {
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+	.ambient-backdrop {
+		display: none;
+	}
+}
+
+/* ---- Marketing motion ----
+   The hidden state is keyed on `[data-reveal]`, which the JS action adds. No
+   script, no attribute, content visible — the failure mode is "no animation",
+   never "blank page". */
+
+[data-reveal] {
+	opacity: 0;
+	transform: translate3d(0, 18px, 0);
+	transition:
+		opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+		transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+	transition-delay: var(--reveal-delay, 0ms);
+	will-change: opacity, transform;
+}
+
+[data-reveal][data-revealed='true'] {
+	opacity: 1;
+	transform: none;
+	will-change: auto;
+}
+
+@keyframes marquee-scroll {
+	from {
+		transform: translate3d(0, 0, 0);
+	}
+	to {
+		transform: translate3d(-100%, 0, 0);
+	}
+}
+
+.marquee-track {
+	animation: marquee-scroll linear infinite;
+}
+
+.marquee:hover .marquee-track {
+	animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-reveal] {
+		opacity: 1;
+		transform: none;
+	}
+	.marquee-track {
+		animation: none;
+	}
+	.marquee {
+		overflow-x: auto;
+	}
+}
+
+/* ---- Collaborator carets ----
+   Tiptap ships no CSS for these. Its render function builds
+   `<span class="collaboration-carets__caret"><div class="…__label">Name</div></span>`,
+   so without rules the label is a block element with the peer's colour as
+   background — a full-width bar across the line, not a name tag. */
+
+.collaboration-carets__caret {
+	position: relative;
+	/* The colour arrives as an inline `border-color`; only width/style here. */
+	border-left: 1.5px solid;
+	border-right: none;
+	margin-inline: -1px;
+	pointer-events: none;
+	word-break: normal;
+	box-sizing: border-box;
+}
+
+.collaboration-carets__label {
+	position: absolute;
+	top: -1.45em;
+	left: -1.5px;
+	padding: 0.15rem 0.4rem;
+	border-radius: 6px 6px 6px 0;
+	font-size: 11px;
+	font-weight: 500;
+	font-style: normal;
+	line-height: 1;
+	white-space: nowrap;
+	color: #fff;
+	user-select: none;
+	pointer-events: none;
+	/* Four collaborators would otherwise mean four permanent tags over the text.
+	   The decoration is rebuilt whenever a peer moves, which restarts this — so
+	   the label reappears on activity and fades when idle, with no JS timer. */
+	animation: caret-label-idle 3.2s ease-out forwards;
+}
+
+@keyframes caret-label-idle {
+	0%,
+	62% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+.collaboration-carets__caret:hover .collaboration-carets__label {
+	animation: none;
+	opacity: 1;
+}
+
+/* The part-heard dictation tail. A widget decoration, never document content —
+   it cannot be saved, which is why it may safely look unfinished. */
+.dictation-interim {
+	color: var(--muted-foreground);
+	font-style: italic;
+	background: color-mix(in oklab, var(--recording) 10%, transparent);
+	border-radius: var(--radius-sm);
+	padding: 0 0.1em;
+}
+
+.note-prose p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	color: var(--muted-foreground);
+	float: left;
+	height: 0;
+	pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

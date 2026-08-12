@@ -17,10 +17,40 @@
 	const currentLang = $derived(
 		LANGUAGES.find((l) => l.value === speech.lang)?.label ?? speech.lang
 	);
+
+	/**
+	 * The other language to offer as a one-tap switch.
+	 *
+	 * Most people alternate between exactly two, so surfacing the previous one
+	 * beats reopening a 15-item list every time. Undefined until a second
+	 * language has actually been used — no speculative button.
+	 */
+	const otherLang = $derived(
+		(notes.prefs.recentLangs ?? []).find((value) => value !== speech.lang)
+	);
+
+	function pickLang(value: string) {
+		speech.setLang(value);
+		notes.setPref('speechLang', value);
+		notes.noteLangUse(value);
+	}
 </script>
 
 <div class="flex items-center gap-1">
 	{#if speech.supported}
+		{#if otherLang}
+			<!-- One-tap flip to the last other language; the full list stays in the menu. -->
+			<Button
+				variant="ghost"
+				size="sm"
+				class="text-muted-foreground"
+				aria-label="Switch dictation to {LANGUAGES.find((l) => l.value === otherLang)?.label ??
+					otherLang}"
+				onclick={() => pickLang(otherLang)}
+			>
+				{otherLang.split('-')[0]}
+			</Button>
+		{/if}
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -41,14 +71,33 @@
 					{#each LANGUAGES as language (language.value)}
 						<DropdownMenu.CheckboxItem
 							checked={speech.lang === language.value}
-							onCheckedChange={() => {
-								speech.setLang(language.value);
-								notes.setPref('speechLang', language.value);
-							}}
+							onCheckedChange={() => pickLang(language.value)}
 						>
 							{language.label}
 						</DropdownMenu.CheckboxItem>
 					{/each}
+				</DropdownMenu.Group>
+				<DropdownMenu.Separator />
+				<DropdownMenu.Group>
+					<DropdownMenu.Label>Transcript</DropdownMenu.Label>
+					<DropdownMenu.CheckboxItem
+						checked={speech.commands}
+						onCheckedChange={(value) => {
+							speech.setOption('commands', value);
+							notes.setPref('voiceCommands', value);
+						}}
+					>
+						Spoken punctuation
+					</DropdownMenu.CheckboxItem>
+					<DropdownMenu.CheckboxItem
+						checked={speech.autoPunctuate}
+						onCheckedChange={(value) => {
+							speech.setOption('autoPunctuate', value);
+							notes.setPref('autoPunctuate', value);
+						}}
+					>
+						Auto-capitalize
+					</DropdownMenu.CheckboxItem>
 				</DropdownMenu.Group>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>

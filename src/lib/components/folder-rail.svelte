@@ -9,6 +9,7 @@
 	import Moon02Icon from '@hugeicons/core-free-icons/Moon02Icon';
 	import KeyboardIcon from '@hugeicons/core-free-icons/KeyboardIcon';
 	import Edit02Icon from '@hugeicons/core-free-icons/Edit02Icon';
+	import Database02Icon from '@hugeicons/core-free-icons/Database02Icon';
 
 	import { toggleMode, mode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
@@ -21,6 +22,7 @@
 	import { notes } from '$lib/stores/notes.svelte';
 	import type { Folder } from '$lib/types';
 	import InstallPrompt from './install-prompt.svelte';
+	import BackupDialog from './backup-dialog.svelte';
 
 	type Props = {
 		selected: string | null | 'trash';
@@ -38,6 +40,7 @@
 	let renaming = $state<Folder | null>(null);
 	let renameValue = $state('');
 	let deleting = $state<Folder | null>(null);
+	let backupOpen = $state(false);
 
 	$effect(() => {
 		if (creating && newFolderRef) newFolderRef.focus();
@@ -69,7 +72,7 @@
 	const activeClass = 'bg-muted text-foreground font-medium';
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-sidebar">
+<div class="flex h-full min-h-0 flex-col glass">
 	<!--
 		The header holds no controls: inside the mobile Sheet the focus trap lands on
 		the first focusable child, and a theme toggle there popped its own tooltip on open.
@@ -190,6 +193,15 @@
 			<HugeiconsIcon icon={FolderAddIcon} strokeWidth={2} data-icon="inline-start" />
 			New Folder
 		</Button>
+		<Button
+			variant="ghost"
+			size="sm"
+			class="w-full justify-start"
+			onclick={() => (backupOpen = true)}
+		>
+			<HugeiconsIcon icon={Database02Icon} strokeWidth={2} data-icon="inline-start" />
+			Backup & Restore
+		</Button>
 		<div class="flex items-center gap-1">
 			<Button variant="ghost" size="sm" class="flex-1 justify-start" onclick={onshortcuts}>
 				<HugeiconsIcon icon={KeyboardIcon} strokeWidth={2} data-icon="inline-start" />
@@ -220,6 +232,8 @@
 		</div>
 	</footer>
 </div>
+
+<BackupDialog bind:open={backupOpen} />
 
 <AlertDialog.Root open={!!renaming} onOpenChange={(o) => !o && (renaming = null)}>
 	<AlertDialog.Content>

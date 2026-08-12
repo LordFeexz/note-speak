@@ -43,6 +43,13 @@
 				view = 'editor';
 			}
 			if (notes.prefs.speechLang) speech.setLang(notes.prefs.speechLang);
+			// Seed the quick-switch with whatever we start on, so the *second*
+			// language a user picks is enough to make the toggle appear.
+			notes.noteLangUse(speech.lang);
+			// Both default to on, so only an explicit `false` turns them off.
+			if (notes.prefs.voiceCommands === false) speech.commands = false;
+			if (notes.prefs.autoPunctuate === false) speech.autoPunctuate = false;
+			void handleLaunchParams();
 		});
 
 		const untrackViewport = trackViewportHeight();
@@ -77,9 +84,9 @@
 		if (folderId !== null) parts.push(`folder=${encodeURIComponent(folderId)}`);
 		if (noteId) parts.push(`note=${encodeURIComponent(noteId)}`);
 		const search = parts.length ? `?${parts.join('&')}` : '';
-		// The rule can't see through the template literal, but the path *is* resolve('/').
+		// The rule can't see through the template literal, but the path *is* resolve('/app').
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		if (search !== page.url.search) replaceState(`${resolve('/')}${search}`, {});
+		if (search !== page.url.search) replaceState(`${resolve('/app')}${search}`, {});
 	});
 
 	function selectFolder(next: string | null | 'trash') {
@@ -95,13 +102,57 @@
 		view = 'editor';
 	}
 
-	function createNote() {
+	function createNote(body = '') {
 		if (folderId === 'trash') folderId = null;
 		notes.query = '';
 		const created = notes.createNote(typeof folderId === 'string' ? folderId : null);
+		if (body) notes.updateBody(created.id, body);
 		noteId = created.id;
 		view = 'editor';
 		setTimeout(() => editor?.focusEditor(), 0);
+	}
+
+	/**
+	 * Handle the manifest's `shortcuts` and `share_target` entries.
+	 *
+	 * Both arrive as query params on a cold start, so this runs once after the
+	 * store loads. The URL-sync effect below rewrites `search` from the current
+	 * selection, which clears these params without any extra work.
+	 */
+	async function handleLaunchParams() {
+		const params = page.url.searchParams;
+		const shared = [params.get('shared_title'), params.get('shared_text'), params.get('shared_url')]
+			.filter(Boolean)
+			.join('\n');
+
+		if (shared) createNote(shared);
+		else if (params.get('new')) createNote();
+
+		if (!params.get('dictate') || !speech.supported) return;
+
+		// `start()` needs user activation, and a shortcut launch isn't a gesture.
+		// Chrome often allows it once mic permission is granted, so try — but never
+		// leave a note that promised to be listening and silently isn't.
+		let granted = false;
+		try {
+			const status = await navigator.permissions.query({
+				name: 'microphone' as PermissionName
+			});
+			granted = status.state === 'granted';
+		} catch {
+			// Safari and Firefox don't expose the microphone descriptor at all.
+		}
+		if (granted) editor?.toggleDictation();
+
+		setTimeout(() => {
+			if (speech.listening) return;
+			toast('Ready when you are', {
+				description: 'Tap to start dictating this note.',
+				duration: 12_000,
+				// A toast action *is* a user gesture, so this path always works.
+				action: { label: 'Dictate', onClick: () => editor?.toggleDictation() }
+			});
+		}, 600);
 	}
 
 	function trashNote(target: Note) {

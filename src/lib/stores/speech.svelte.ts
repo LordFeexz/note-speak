@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { renderTranscript } from '$lib/speech/transcript';
 
 /**
  * Minimal typings for the Web Speech API. It is not in every TS DOM lib and the
@@ -105,11 +106,47 @@ class SpeechController {
 	 * - `processing`  — speech has stopped but the engine hasn't settled the text yet
 	 */
 	phase = $state<'idle' | 'starting' | 'listening' | 'hearing' | 'processing'>('idle');
-	/** Everything the engine has finalized this dictation run. */
-	finalText = $state('');
-	/** The not-yet-final tail, replaced wholesale on every event. */
+	/** The not-yet-final tail, verbatim, replaced wholesale on every event. */
 	interim = $state('');
 	lang = $state('en-US');
+	/** Map spoken tokens ("titik" / "period") to punctuation. */
+	commands = $state(true);
+	/** Capitalize sentences and tidy spacing. */
+	autoPunctuate = $state(true);
+
+	/**
+	 * Finalized utterances this run, in order.
+	 *
+	 * Kept as separate segments rather than one joined string because
+	 * "scratch that" means "drop the previous utterance" — joining first would
+	 * destroy the only reliable boundary the engine gives us.
+	 */
+	#segments = $state<string[]>([]);
+
+	#options() {
+		return { lang: this.lang, commands: this.commands, autoPunctuate: this.autoPunctuate };
+	}
+
+	get segments(): string[] {
+		return this.#segments;
+	}
+
+	/** Everything finalized this run, rendered. */
+	get finalText(): string {
+		return renderTranscript(this.#segments, this.#options());
+	}
+
+	/**
+	 * Finalized text plus the part-heard tail, rendered as one piece.
+	 *
+	 * Commands apply to the interim tail too, so "titik" shows as "." as soon as
+	 * it is heard rather than jumping when the segment settles. Safe because
+	 * rendering is pure — this is only ever a preview of the same computation.
+	 */
+	get previewText(): string {
+		const tail = this.interim.trim();
+		return renderTranscript(tail ? [...this.#segments, tail] : this.#segments, this.#options());
+	}
 
 	readonly supported: boolean;
 	readonly unsupportedReason: SpeechUnsupportedReason;
@@ -126,8 +163,8 @@ class SpeechController {
 	#lastStart = 0;
 	/** Finalized transcripts by result index — a Map so a re-reported index overwrites. */
 	#finals = new Map<number, string>();
-	/** Text finalized in earlier engine sessions, whose indices restarted at 0. */
-	#carry = '';
+	/** Segments finalized in earlier engine sessions, whose indices restarted at 0. */
+	#carry: string[] = [];
 	/** Flips `hearing` → `processing` once part-heard words stop changing. */
 	#settleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -142,12 +179,10 @@ class SpeechController {
 		}, 700);
 	}
 
-	#joinFinals() {
+	/** Carry-over plus this session's finals, ordered by result index. */
+	#collect(): string[] {
 		const parts = [...this.#finals.entries()].sort((a, b) => a[0] - b[0]).map(([, t]) => t);
-		return [this.#carry, ...parts]
-			.map((part) => part.trim())
-			.filter(Boolean)
-			.join(' ');
+		return [...this.#carry, ...parts].map((part) => part.trim()).filter(Boolean);
 	}
 
 	constructor() {
@@ -177,6 +212,15 @@ class SpeechController {
 		if (this.#recognition) this.#recognition.lang = lang;
 	}
 
+	/**
+	 * Toggle transcript processing. Safe mid-run: rendering is pure, so the
+	 * editor's next span rewrite simply reflects the new setting.
+	 */
+	setOption(key: 'commands' | 'autoPunctuate', value: boolean) {
+		this[key] = value;
+		this.onupdate?.();
+	}
+
 	#create(): SpeechRecognitionLike | null {
 		const Ctor = getConstructor();
 		if (!Ctor) return null;
@@ -203,7 +247,7 @@ class SpeechController {
 				if (result.isFinal) this.#finals.set(i, transcript);
 				else interimText += transcript;
 			}
-			this.finalText = this.#joinFinals();
+			this.#segments = this.#collect();
 			this.interim = interimText.trim();
 			if (this.interim) {
 				this.phase = 'hearing';
@@ -245,7 +289,7 @@ class SpeechController {
 			try {
 				// A new session numbers its results from 0 again, so fold whatever is
 				// already finalized into the carry before the map gets reused.
-				this.#carry = this.#joinFinals();
+				this.#carry = this.#collect();
 				this.#finals.clear();
 				this.#lastStart = Date.now();
 				this.#recognition?.start();
@@ -288,8 +332,8 @@ class SpeechController {
 		this.#lastStart = Date.now();
 		// Fresh run: previous transcripts are already committed to the note.
 		this.#finals.clear();
-		this.#carry = '';
-		this.finalText = '';
+		this.#carry = [];
+		this.#segments = [];
 		this.interim = '';
 		try {
 			rec.start();

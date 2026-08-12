@@ -7,6 +7,10 @@
 	let { children } = $props();
 </script>
 
+<!-- The wash every glass surface blurs. One fixed layer, so panes composite
+     against a continuous gradient rather than each carrying its own. -->
+<div class="ambient-backdrop" aria-hidden="true"></div>
+
 <ModeWatcher />
 <Toaster position="bottom-center" richColors closeButton />
 <ServiceWorkerUpdate />
