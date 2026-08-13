@@ -3,7 +3,11 @@
 	import type { Editor } from '@tiptap/core';
 	import { createSharedEditor, getMarkdown, normalizeListMarkers } from '$lib/editor/create';
 	import { hasFinePointer } from '$lib/motion.svelte';
+	import { toast } from 'svelte-sonner';
+	import { SlashController } from '$lib/editor/slash-controller.svelte';
+	import { MEDIA_ACCEPT, prepareMedia, storagePressure, type MediaKind } from '$lib/editor/media';
 	import FollowingPointer from './following-pointer.svelte';
+	import BlockMenu from './block-menu.svelte';
 	import {
 		openShareSession,
 		signalingUrl,
@@ -13,6 +17,7 @@
 		type ShareSession
 	} from '$lib/share/session';
 	import type { ShareLink } from '$lib/share/crypto';
+	import { workspaces } from '$lib/workspace/store.svelte';
 
 	type Props = {
 		link: ShareLink;
@@ -49,7 +54,64 @@
 	let session: ShareSession | null = null;
 
 	let peerCount = $state(0);
+	/** Transport peers, including background relays — see `pushState`. */
+	let connectedPeers = $state(0);
 	let pointers = $state<Pointer[]>([]);
+
+	// Shared notes get the same block menu as local ones. Without this the `/`
+	// menu would simply stop existing the moment a note was shared.
+	// Its own picker rather than the host's: this component is also mounted
+	// standalone on /s/<docId>, where there is no note editor to borrow one from.
+	let mediaInput = $state<HTMLInputElement | null>(null);
+	let pendingKind: MediaKind | null = null;
+
+	const slash = new SlashController({
+		onNeeds: (block) => {
+			if (!editor) return;
+			if (block.needs === 'url') {
+				const url = window.prompt('Paste a link (YouTube, Instagram, or any URL)')?.trim();
+				if (url)
+					editor
+						.chain()
+						.focus()
+						.insertContent({ type: 'embed', attrs: { href: url } })
+						.run();
+				return;
+			}
+			pendingKind = (block.needs ?? 'file') as MediaKind;
+			if (mediaInput) mediaInput.accept = MEDIA_ACCEPT[pendingKind];
+			mediaInput?.click();
+		}
+	});
+
+	async function onMediaPicked(event: Event & { currentTarget: HTMLInputElement }) {
+		const file = event.currentTarget.files?.[0];
+		const kind = pendingKind;
+		event.currentTarget.value = '';
+		pendingKind = null;
+		if (!file || !kind || !editor) return;
+
+		const result = await prepareMedia(file, kind);
+		if (!result.ok) {
+			toast.error(result.reason);
+			return;
+		}
+		const pressure = await storagePressure(result.bytes);
+		if (pressure) toast.warning(pressure);
+
+		if (kind === 'image') {
+			editor.chain().focus().setImage({ src: result.src, alt: result.name }).run();
+		} else {
+			editor
+				.chain()
+				.focus()
+				.insertContent({
+					type: kind,
+					attrs: { src: result.src, name: result.name, size: result.size }
+				})
+				.run();
+		}
+	}
 	/**
 	 * Surface width, tracked so a peer's fractional x can be turned into pixels.
 	 *
@@ -62,11 +124,16 @@
 	let localReady = $state(false);
 	let hasContent = $state(false);
 
-	const isEmpty = $derived(localReady && !hasContent && peerCount === 0);
+	const isEmpty = $derived(localReady && !hasContent && connectedPeers === 0);
 
 	onMount(() => {
 		let disposed = false;
 		let pointerFrame = 0;
+
+		// A workspace keeps its notes connected in the background. Take that one
+		// over rather than joining the same room twice from one browser, which
+		// would count this device among the collaborators.
+		workspaces.hold(link.docId);
 
 		void (async () => {
 			const opened = await openShareSession(link, identity, signalingUrl());
@@ -74,14 +141,33 @@
 			session = opened;
 			onsession?.(opened);
 
+			/**
+			 * People, not connections.
+			 *
+			 * A workspace keeps every one of its notes connected in the background
+			 * so members can fetch them, and those connections are peers like any
+			 * other — counting them would report "2 others" on a note nobody else
+			 * has open. Presence comes from awareness, which only a device with the
+			 * note actually open publishes.
+			 */
+			const present = () =>
+				[...opened.provider.awareness.getStates().entries()].filter(
+					([id, state]) => id !== opened.doc.clientID && state?.user
+				).length;
+
 			const pushState = () => {
-				peerCount = opened.provider.peerCount;
+				peerCount = present();
+				// Kept separate on purpose: "is anyone here?" and "could anyone send
+				// me this note?" are different questions, and the empty state depends
+				// on the second one.
+				connectedPeers = opened.provider.peerCount;
 				onstate?.({
 					status: opened.provider.status,
-					peerCount: opened.provider.peerCount,
+					peerCount: peerCount,
 					role: opened.role
 				});
 			};
+			opened.provider.onerror = (message) => toast.error(message);
 			opened.provider.onstatus = pushState;
 			pushState();
 
@@ -99,6 +185,7 @@
 				// Viewers get a read-only surface. This is presentation only — the real
 				// guarantee is that peers reject updates they can't verify.
 				editable: opened.role === 'editor',
+				slash: slash.extension(),
 				onUpdate: (markdown) => {
 					hasContent = true;
 					onmarkdown?.(markdown);
@@ -120,6 +207,9 @@
 			}
 
 			opened.provider.awareness.on('change', () => {
+				// Presence is derived from awareness now, so someone arriving or
+				// leaving has to refresh the count as well as the pointers.
+				pushState();
 				const states = opened.provider.awareness.getStates();
 				const self = opened.doc.clientID;
 				pointers = [...states.entries()]
@@ -172,6 +262,7 @@
 			oneditor?.(null);
 			editor?.destroy();
 			session?.destroy();
+			workspaces.release(link.docId);
 		};
 	});
 
@@ -224,3 +315,7 @@
 		{/each}
 	{/if}
 </div>
+
+<input bind:this={mediaInput} type="file" class="hidden" onchange={onMediaPicked} />
+
+<BlockMenu slash={slash.state} selected={slash.index} onselect={(block) => slash.select(block)} />

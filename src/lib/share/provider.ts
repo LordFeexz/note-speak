@@ -53,10 +53,49 @@ type Frame =
 	| { t: 'entries'; entries: LogEntry[] }
 	| { t: 'aware'; u: string };
 
+/**
+ * Wire framing.
+ *
+ * A WebRTC data channel refuses messages beyond its `maxMessageSize` — 64 KB is
+ * the interoperable floor — and `simple-peer` does no chunking of its own. That
+ * was invisible while notes were text, and broke the moment a note could carry
+ * an embedded image: the update simply never arrived, with no error anywhere.
+ *
+ * Every frame therefore carries a one-byte kind:
+ *
+ *   whole: [0x00][ciphertext…]
+ *   chunk: [0x01][msgId:4][seq:2][total:2][ciphertext slice…]
+ *
+ * Chunking happens *after* encryption, so the wire format stays opaque and a
+ * relay learns nothing from message boundaries.
+ */
+const KIND_WHOLE = 0x00;
+const KIND_CHUNK = 0x01;
+const CHUNK_HEADER = 9;
+const CHUNK_PAYLOAD = 48 * 1024;
+/** Bounds a peer's claimed message size: 512 × 48 KB ≈ 24 MB. */
+const MAX_CHUNKS = 512;
+/** Partial messages are abandoned if the rest never arrives. */
+const REASSEMBLY_TIMEOUT_MS = 60_000;
+
+type Partial = { chunks: (Uint8Array | undefined)[]; received: number; total: number; at: number };
+
 /** Beyond this, an editor collapses the log into one snapshot entry. */
 const SNAPSHOT_AFTER = 100;
 /** Non-snapshot entries a peer retains. Older history is covered by snapshots. */
 const KEEP_ENTRIES = 400;
+/**
+ * Byte budget, enforced alongside the entry counts.
+ *
+ * Counting entries alone was fine while an update was a few hundred bytes. With
+ * an embedded image a single entry can be half a megabyte, so 400 of them is
+ * hundreds of megabytes sitting in IndexedDB — a quota failure rather than a
+ * cache. Whichever limit trips first wins.
+ */
+const SNAPSHOT_AFTER_BYTES = 2 * 1024 * 1024;
+const KEEP_BYTES = 8 * 1024 * 1024;
+
+const entryBytes = (entry: LogEntry) => entry.u.length + entry.s.length;
 
 const logKey = (docId: string) => `note-speak:sharelog:${docId}`;
 
@@ -68,12 +107,20 @@ export class SignedDocProvider {
 	status: ProviderStatus = 'connecting';
 	peerCount = 0;
 	onstatus: (() => void) | null = null;
+	/**
+	 * Surfaced to the user. Silence is the wrong default here: an update that is
+	 * dropped rather than sent leaves two peers quietly disagreeing about the
+	 * note, which is worse than an error.
+	 */
+	onerror: ((message: string) => void) | null = null;
 
 	#link: ShareLink;
 	#key: CryptoKey | null = null;
 	#socket: WebSocket | null = null;
 	#peers = new Map<string, Peer.Instance>();
 	#log = new Map<string, LogEntry>();
+	/** In-flight chunked messages, per peer, so a disconnect drops its partials. */
+	#partials = new Map<Peer.Instance, Map<number, Partial>>();
 	#selfId = toBase64Url(crypto.getRandomValues(new Uint8Array(8)));
 	#destroyed = false;
 	#retry = 0;
@@ -104,6 +151,7 @@ export class SignedDocProvider {
 		this.awareness.off('update', this.#onAwarenessUpdate);
 		for (const peer of this.#peers.values()) peer.destroy();
 		this.#peers.clear();
+		this.#partials.clear();
 		this.#socket?.close();
 		this.#socket = null;
 		void this.#saveLog();
@@ -132,8 +180,23 @@ export class SignedDocProvider {
 	async #saveLog() {
 		const entries = [...this.#log.values()];
 		const snapshots = entries.filter((e) => e.snap);
-		const regular = entries.filter((e) => !e.snap).slice(-KEEP_ENTRIES);
+		// Newest first while trimming, so the budget keeps recent history rather
+		// than whatever happened to be at the front of the array.
+		const regular: LogEntry[] = [];
+		let bytes = snapshots.reduce((sum, entry) => sum + entryBytes(entry), 0);
+		for (const entry of entries.filter((e) => !e.snap).reverse()) {
+			if (regular.length >= KEEP_ENTRIES || bytes + entryBytes(entry) > KEEP_BYTES) break;
+			bytes += entryBytes(entry);
+			regular.unshift(entry);
+		}
 		await set(logKey(this.#link.docId), [...snapshots, ...regular]);
+	}
+
+	/** Total size of the in-memory log, for the compaction budget. */
+	#logBytes(): number {
+		let total = 0;
+		for (const entry of this.#log.values()) total += entryBytes(entry);
+		return total;
 	}
 
 	#onLocalUpdate = (update: Uint8Array, origin: unknown) => {
@@ -154,7 +217,9 @@ export class SignedDocProvider {
 		this.#log.set(entry.id, entry);
 		this.#broadcast({ t: 'entries', entries: [entry] });
 		this.#queueSave();
-		if (!snap && this.#log.size > SNAPSHOT_AFTER) await this.#compact();
+		if (!snap && (this.#log.size > SNAPSHOT_AFTER || this.#logBytes() > SNAPSHOT_AFTER_BYTES)) {
+			await this.#compact();
+		}
 	}
 
 	/**
@@ -279,10 +344,12 @@ export class SignedDocProvider {
 		peer.on('data', (data: Uint8Array) => void this.#onData(data, peer));
 		peer.on('close', () => {
 			this.#peers.delete(remoteId);
+			this.#partials.delete(peer);
 			this.#updatePeerCount();
 		});
 		peer.on('error', () => {
 			this.#peers.delete(remoteId);
+			this.#partials.delete(peer);
 			this.#updatePeerCount();
 		});
 		return peer;
@@ -293,8 +360,40 @@ export class SignedDocProvider {
 	async #send(peer: Peer.Instance, frame: Frame) {
 		if (!this.#key || !peer.connected) return;
 		const bytes = new TextEncoder().encode(JSON.stringify(frame));
+		const cipher = await encrypt(this.#key, bytes);
+
 		try {
-			peer.send(await encrypt(this.#key, bytes));
+			if (cipher.length <= CHUNK_PAYLOAD) {
+				const packet = new Uint8Array(1 + cipher.length);
+				packet[0] = KIND_WHOLE;
+				packet.set(cipher, 1);
+				peer.send(packet);
+				return;
+			}
+
+			const total = Math.ceil(cipher.length / CHUNK_PAYLOAD);
+			if (total > MAX_CHUNKS) {
+				this.onerror?.('That change is too large to share.');
+				return;
+			}
+			const msgId = crypto.getRandomValues(new Uint32Array(1))[0];
+
+			for (let seq = 0; seq < total; seq++) {
+				const slice = cipher.subarray(seq * CHUNK_PAYLOAD, (seq + 1) * CHUNK_PAYLOAD);
+				const packet = new Uint8Array(CHUNK_HEADER + slice.length);
+				const view = new DataView(packet.buffer);
+				packet[0] = KIND_CHUNK;
+				view.setUint32(1, msgId);
+				view.setUint16(5, seq);
+				view.setUint16(7, total);
+				packet.set(slice, CHUNK_HEADER);
+				peer.send(packet);
+
+				// Yield periodically so a large image does not monopolise the send
+				// buffer and stall the connection's own keepalives.
+				if (seq % 16 === 15) await new Promise((resolve) => setTimeout(resolve, 0));
+				if (!peer.connected) return;
+			}
 		} catch {
 			/* channel closed mid-send */
 		}
@@ -304,9 +403,55 @@ export class SignedDocProvider {
 		for (const peer of this.#peers.values()) void this.#send(peer, frame);
 	}
 
+	/** Reassembles chunked frames; returns the full ciphertext or null if incomplete. */
+	#reassemble(packet: Uint8Array, from: Peer.Instance): Uint8Array | null {
+		if (packet[0] === KIND_WHOLE) return packet.subarray(1);
+		if (packet[0] !== KIND_CHUNK || packet.length < CHUNK_HEADER) return null;
+
+		const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+		const msgId = view.getUint32(1);
+		const seq = view.getUint16(5);
+		const total = view.getUint16(7);
+		// A peer could claim any total; refuse to allocate on their word alone.
+		if (total === 0 || total > MAX_CHUNKS || seq >= total) return null;
+
+		let byPeer = this.#partials.get(from);
+		if (!byPeer) this.#partials.set(from, (byPeer = new Map()));
+
+		// Drop stale partials rather than let an abandoned transfer sit forever.
+		const now = Date.now();
+		for (const [id, entry] of byPeer) {
+			if (now - entry.at > REASSEMBLY_TIMEOUT_MS) byPeer.delete(id);
+		}
+
+		let partial = byPeer.get(msgId);
+		if (!partial) {
+			partial = { chunks: new Array(total), received: 0, total, at: now };
+			byPeer.set(msgId, partial);
+		}
+		if (partial.total !== total || partial.chunks[seq]) return null;
+
+		partial.chunks[seq] = packet.subarray(CHUNK_HEADER);
+		partial.received++;
+		if (partial.received < total) return null;
+
+		byPeer.delete(msgId);
+		const size = partial.chunks.reduce((sum, chunk) => sum + (chunk?.length ?? 0), 0);
+		const joined = new Uint8Array(size);
+		let offset = 0;
+		for (const chunk of partial.chunks) {
+			if (!chunk) return null;
+			joined.set(chunk, offset);
+			offset += chunk.length;
+		}
+		return joined;
+	}
+
 	async #onData(data: Uint8Array, from: Peer.Instance) {
 		if (!this.#key) return;
-		const plain = await decrypt(this.#key, new Uint8Array(data));
+		const cipher = this.#reassemble(new Uint8Array(data), from);
+		if (!cipher) return;
+		const plain = await decrypt(this.#key, cipher);
 		// A frame we cannot decrypt came from someone without the content key.
 		// Drop it silently; there is nothing useful to tell the user.
 		if (!plain) return;

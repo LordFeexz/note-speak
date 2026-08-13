@@ -53,6 +53,10 @@
 	   the editor gets a much more opaque scrim. */
 	--glass-bg: oklch(1 0 0 / 0.55);
 	--glass-bg-strong: oklch(1 0 0 / 0.82);
+	/* Overlays float over arbitrary note text, so they get their own, far more
+	   opaque fill. 0.55 was chosen for chrome sitting over a gradient; the same
+	   value under a popover is text over text. */
+	--glass-bg-overlay: oklch(1 0 0 / 0.94);
 	--glass-border: oklch(1 0 0 / 0.5);
 	--glass-blur: 16px;
 	--glass-blur-lg: 24px;
@@ -109,6 +113,7 @@
 	   ambient blob loses contrast far faster than dark text over a pale one. */
 	--glass-bg: oklch(0.22 0.008 260 / 0.55);
 	--glass-bg-strong: oklch(0.19 0.008 260 / 0.86);
+	--glass-bg-overlay: oklch(0.2 0.008 260 / 0.94);
 	--glass-border: oklch(1 0 0 / 0.12);
 	--glass-shadow: 0 8px 32px oklch(0 0 0 / 0.45);
 
@@ -301,6 +306,274 @@
 	border-top: 1px solid var(--border);
 }
 
+/* Tables. ProseMirror wraps them in .tableWrapper; the horizontal scroll lives
+   there so a wide table scrolls inside itself instead of pushing the page
+   sideways — the pane is 390px on a phone and tables do not reflow. */
+.note-prose .tableWrapper {
+	overflow-x: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--border) transparent;
+}
+
+.note-prose table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+	margin: 0.5em 0;
+	font-size: 0.95em;
+}
+
+.note-prose th,
+.note-prose td {
+	border: 1px solid var(--glass-border, var(--border));
+	padding: 0.4rem 0.6rem;
+	vertical-align: top;
+	/* Without a floor, an empty cell collapses to an unclickable sliver. */
+	min-width: 5rem;
+	position: relative;
+}
+
+.note-prose th {
+	background: color-mix(in oklab, var(--muted) 70%, transparent);
+	font-weight: 600;
+	text-align: left;
+}
+
+.note-prose th > p,
+.note-prose td > p {
+	margin: 0;
+}
+
+/* ProseMirror's cell selection: without this, dragging across cells looks
+   like nothing is happening. */
+.note-prose .selectedCell::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: color-mix(in oklab, var(--note-accent) 18%, transparent);
+	pointer-events: none;
+}
+
+.note-prose img {
+	max-width: 100%;
+	height: auto;
+	border-radius: var(--radius-md);
+	display: block;
+	margin: 0.5em 0;
+}
+
+.note-prose img.ProseMirror-selectednode {
+	outline: 2px solid var(--note-accent);
+	outline-offset: 2px;
+}
+
+/* ---- Directive blocks ---- */
+
+.note-callout {
+	border-left: 3px solid var(--note-accent);
+	background: color-mix(in oklab, var(--note-accent) 8%, transparent);
+	border-radius: var(--radius-md);
+	padding: 0.75rem 1rem;
+	margin: 0.75em 0;
+}
+.note-callout > * + * {
+	margin-top: 0.5em;
+}
+.note-callout[data-type='warning'] {
+	border-left-color: var(--recording);
+	background: color-mix(in oklab, var(--recording) 8%, transparent);
+}
+.note-callout[data-type='tip'] {
+	border-left-color: oklch(0.65 0.16 150);
+	background: color-mix(in oklab, oklch(0.65 0.16 150) 8%, transparent);
+}
+
+.note-toggle {
+	border: 1px solid var(--glass-border, var(--border));
+	border-radius: var(--radius-md);
+	padding: 0.65rem 0.9rem;
+	margin: 0.75em 0;
+}
+/* The summary is an attribute rather than a child node, so it is drawn here —
+   keeping it out of the document means it cannot be half-deleted by an edit. */
+.note-toggle::before {
+	content: attr(data-summary);
+	display: block;
+	font-weight: 600;
+	font-size: 0.9em;
+	margin-bottom: 0.4rem;
+	color: var(--muted-foreground);
+}
+
+.note-columns {
+	display: grid;
+	gap: 1rem;
+	grid-template-columns: 1fr;
+	margin: 0.75em 0;
+}
+/* Side by side only where there is room; a 390px pane cannot hold two columns
+   of prose, so they stack. */
+@media (min-width: 640px) {
+	.note-columns {
+		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	}
+}
+.note-column {
+	min-width: 0;
+}
+.note-column > * + * {
+	margin-top: 0.5em;
+}
+
+.note-video,
+.note-audio {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	border-radius: var(--radius-md);
+	margin: 0.5em 0;
+}
+.note-audio {
+	height: 2.5rem;
+}
+
+.note-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 2.75rem;
+	padding: 0.5rem 0.9rem;
+	margin: 0.5em 0;
+	border: 1px solid var(--glass-border, var(--border));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklab, var(--muted) 50%, transparent);
+	text-decoration: none;
+	font-size: 0.9em;
+}
+.note-file::before {
+	content: '↓';
+	opacity: 0.6;
+}
+
+/* Rendered diagrams and formulas, shown beside their source. */
+.note-render {
+	margin: 0.5em 0 0.75em;
+	padding: 0.75rem;
+	border: 1px dashed var(--glass-border, var(--border));
+	border-radius: var(--radius-md);
+	overflow-x: auto;
+	text-align: center;
+	user-select: none;
+}
+.note-render[data-state='pending'],
+.note-render[data-state='error'] {
+	font-size: 0.8em;
+	color: var(--muted-foreground);
+	text-align: left;
+	font-family: inherit;
+}
+.note-render[data-state='error'] {
+	border-color: color-mix(in oklab, var(--recording) 45%, transparent);
+	color: var(--recording);
+}
+.note-render svg {
+	max-width: 100%;
+	height: auto;
+}
+
+.note-math {
+	font-family: ui-monospace, monospace;
+	font-size: 0.9em;
+	background: color-mix(in oklab, var(--muted) 55%, transparent);
+	border-radius: var(--radius-md);
+	padding: 0.5rem 0.75rem;
+	margin: 0.5em 0;
+	white-space: pre-wrap;
+}
+
+/* Wiki-style links between notes. A link to a title that does not exist yet is
+   shown dashed rather than broken — that is an invitation, not an error. */
+.note-wikilink {
+	color: var(--note-accent);
+	border-bottom: 1px solid color-mix(in oklab, var(--note-accent) 40%, transparent);
+	cursor: pointer;
+	padding: 0 0.1em;
+}
+.note-wikilink::before {
+	content: '[[';
+	opacity: 0.35;
+}
+.note-wikilink::after {
+	content: ']]';
+	opacity: 0.35;
+}
+.note-wikilink:hover {
+	background: color-mix(in oklab, var(--note-accent) 12%, transparent);
+}
+
+/* Voice clips: audio and the words that were said, together. */
+.note-voice {
+	border: 1px solid var(--glass-border, var(--border));
+	border-left: 3px solid var(--recording);
+	border-radius: var(--radius-md);
+	padding: 0.75rem 1rem;
+	margin: 0.75em 0;
+	background: color-mix(in oklab, var(--recording) 5%, transparent);
+}
+.note-voice__audio {
+	width: 100%;
+	height: 2.25rem;
+}
+.note-voice__transcript {
+	margin: 0.5rem 0 0;
+	font-size: 0.9em;
+	color: var(--muted-foreground);
+}
+
+/* Link cards. Deliberately inert until clicked — no iframe exists until then,
+   so a note containing a YouTube link contacts nobody when you open it. */
+.note-embed {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	padding: 0.85rem 1rem;
+	margin: 0.75em 0;
+	border: 1px solid var(--glass-border, var(--border));
+	border-radius: var(--radius-md);
+	background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+.note-embed[data-playable='true'] {
+	cursor: pointer;
+}
+.note-embed[data-playable='true']:hover {
+	border-color: var(--note-accent);
+}
+.note-embed__provider {
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: var(--note-accent);
+}
+.note-embed__link {
+	font-size: 0.9em;
+	word-break: break-all;
+}
+.note-embed__hint {
+	font-size: 0.75rem;
+	color: var(--muted-foreground);
+}
+.note-embed__frame {
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	border: 0;
+	border-radius: var(--radius-sm);
+}
+.note-embed[data-embed='spotify'] .note-embed__frame {
+	aspect-ratio: auto;
+	height: 152px;
+}
+
 /* Checklists. The whole point of leaving <textarea> behind, so the checkbox is
    a real 44px-friendly target rather than literal "- [ ]" characters. */
 .note-prose ul[data-type='taskList'] {
@@ -354,6 +627,21 @@
 	background: var(--glass-bg-strong);
 	backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
 	-webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+}
+
+/**
+ * Anything that floats over content: menus, popovers, dialogs, panels.
+ *
+ * Never use `glass` or `glass-panel` for these — a see-through menu over a note
+ * puts text on text, which is exactly the bug this exists to prevent.
+ */
+@utility glass-overlay {
+	background: var(--glass-bg-overlay);
+	backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+	-webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturate));
+	border: 1px solid var(--glass-border);
+	box-shadow: var(--glass-shadow);
+	border-radius: var(--radius-lg);
 }
 
 @utility glass-panel {
@@ -412,10 +700,12 @@ body {
 	:root {
 		--glass-bg: var(--background);
 		--glass-bg-strong: var(--background);
+		--glass-bg-overlay: var(--popover);
 	}
 	.dark {
 		--glass-bg: var(--background);
 		--glass-bg-strong: var(--background);
+		--glass-bg-overlay: var(--popover);
 	}
 	.ambient-backdrop {
 		display: none;
@@ -432,10 +722,12 @@ body {
 	.dark {
 		--glass-bg: var(--background);
 		--glass-bg-strong: var(--background);
+		--glass-bg-overlay: var(--popover);
 	}
 	.glass,
 	.glass-strong,
-	.glass-panel {
+	.glass-panel,
+	.glass-overlay {
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
 	}

@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import LegalPage from '$lib/marketing/legal-page.svelte';
 
-	const UPDATED = '12 August 2026';
+	const UPDATED = '13 August 2026';
 </script>
 
 <svelte:head>
@@ -52,6 +52,19 @@
 		Do not use the sharing feature to distribute unlawful material, or content you do not have the
 		right to share. We operate a signalling service that introduces browsers to one another; we do
 		not host, monitor, or moderate shared content, and cannot remove it from anyone's device.
+	</p>
+
+	<h2>Workspaces</h2>
+	<p>
+		A workspace is unlocked by a passphrase you choose and share with whoever you invite. Everyone
+		holding it can read, edit, add and remove notes in that workspace; there are no roles, and we
+		have no way to grant, restrict, or revoke access on your behalf. Choosing who to give it to, and
+		choosing a passphrase worth the trust, is entirely your call.
+	</p>
+	<p>
+		We hold nothing about a workspace — not its name, not its members, not the fact that it exists.
+		That means we cannot reset a lost passphrase, restore a workspace, remove a member, or recover a
+		note that no member still holds.
 	</p>
 
 	<h2>Service availability</h2>

@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
-import { noteTitle, type Folder, type Note } from '$lib/types';
+import { noteTitle, searchableText, type Folder, type Note, type ShareInfo } from '$lib/types';
+import { linkedTitles } from '$lib/editor/wikilink';
 
 const NOTES_KEY = 'note-speak:notes';
 const FOLDERS_KEY = 'note-speak:folders';
@@ -7,7 +8,20 @@ const PREFS_KEY = 'note-speak:prefs';
 const SCHEMA_KEY = 'note-speak:schema';
 
 /** Bump when `Note` gains a field, and add a step to `migrate()`. */
-const CURRENT_SCHEMA = 1;
+const CURRENT_SCHEMA = 2;
+
+/** Folder ids of the form `ws:<workspaceId>` select a workspace, not a folder. */
+export const WORKSPACE_PREFIX = 'ws:';
+
+export function workspacePane(id: string): string {
+	return `${WORKSPACE_PREFIX}${id}`;
+}
+
+function paneWorkspaceId(folderId: string | null | 'trash'): string | null {
+	return typeof folderId === 'string' && folderId.startsWith(WORKSPACE_PREFIX)
+		? folderId.slice(WORKSPACE_PREFIX.length)
+		: null;
+}
 
 type Prefs = {
 	/** User dismissed the "voice not supported on this browser" banner. */
@@ -61,6 +75,11 @@ function migrate(raw: Note[], from: number): Note[] {
 			share: note.share ?? null
 		}));
 	}
+	if (from < 2) {
+		// v1 predates workspaces. `null` and absent mean the same thing here, but
+		// writing it makes the field present in storage rather than implied.
+		notes = notes.map((note) => ({ ...note, workspaceId: note.workspaceId ?? null }));
+	}
 	return notes;
 }
 
@@ -93,6 +112,22 @@ class NotesStore {
 	loaded = $state(false);
 
 	#timer: ReturnType<typeof setTimeout> | undefined;
+	/**
+	 * Cached search text per note, keyed by the body it was derived from.
+	 *
+	 * Recomputing the strip on every keystroke would cost as much as the naive
+	 * scan it replaces; the body doubles as its own cache key, so an edit
+	 * invalidates the entry without any bookkeeping.
+	 */
+	#searchCache = new Map<string, { body: string; text: string }>();
+
+	#searchText(note: Note): string {
+		const cached = this.#searchCache.get(note.id);
+		if (cached?.body === note.body) return cached.text;
+		const text = searchableText(note.body).toLowerCase();
+		this.#searchCache.set(note.id, { body: note.body, text });
+		return text;
+	}
 
 	async load() {
 		if (this.loaded) return;
@@ -174,11 +209,90 @@ class NotesStore {
 			deletedAt: null,
 			pinnedAt: null,
 			tags: [],
-			share: null
+			share: null,
+			workspaceId: null
 		};
 		this.notes = [note, ...this.notes];
 		this.#persist();
 		return note;
+	}
+
+	// ---- workspaces ----
+
+	/**
+	 * Mirror one workspace index entry into the local note list.
+	 *
+	 * A member sees every note in the workspace, but holds a replica only of the
+	 * ones they have opened — so the stub carries the shared title as its body.
+	 * That keeps the list readable offline, and the shared session overwrites it
+	 * with the real content the moment the note is opened.
+	 */
+	syncWorkspaceNote(
+		workspaceId: string,
+		share: ShareInfo,
+		title: string,
+		updatedAt: number,
+		/** The title this stub was last given, if any — see below. */
+		seededTitle?: string
+	) {
+		const existing = this.notes.find((n) => n.share?.docId === share.docId);
+		if (existing) {
+			existing.workspaceId = workspaceId;
+			// Never overwrite `signSeed` with null: a peer that joined this note by
+			// view link would otherwise be downgraded by its own index entry.
+			if (share.signSeed && !existing.share?.signSeed) existing.share = { ...share };
+			// Keep an unopened stub's title current when another member renames the
+			// note. Guarded on the body still being *exactly* what we last wrote, so
+			// a note the user has actually opened or edited is never touched.
+			if (seededTitle !== undefined && existing.body === seededTitle && title !== seededTitle) {
+				existing.body = title;
+			}
+			this.#persist();
+			return;
+		}
+		const now = Date.now();
+		this.notes = [
+			{
+				id: uid(),
+				folderId: null,
+				body: title,
+				createdAt: updatedAt || now,
+				updatedAt: updatedAt || now,
+				deletedAt: null,
+				pinnedAt: null,
+				tags: [],
+				share: { ...share },
+				workspaceId
+			},
+			...this.notes
+		];
+		this.#persist();
+	}
+
+	/**
+	 * Detach notes from a workspace without deleting them.
+	 *
+	 * Used both when leaving a workspace and when another member removes a note
+	 * from it. Removal from a shared list is not a delete, and treating it as one
+	 * would let any member destroy another's note — so the note falls back to All
+	 * Notes instead.
+	 */
+	detachWorkspace(workspaceId: string, docId?: string) {
+		let touched = false;
+		for (const note of this.notes) {
+			if (note.workspaceId !== workspaceId) continue;
+			if (docId && note.share?.docId !== docId) continue;
+			note.workspaceId = null;
+			touched = true;
+		}
+		if (touched) this.#persist();
+	}
+
+	setWorkspace(id: string, workspaceId: string | null) {
+		const note = this.notes.find((n) => n.id === id);
+		if (!note) return;
+		note.workspaceId = workspaceId;
+		this.#persist();
 	}
 
 	getNote(id: string | null): Note | undefined {
@@ -300,22 +414,27 @@ class NotesStore {
 	countIn(folderId: string | null | 'trash') {
 		if (folderId === 'trash') return this.trashedNotes.length;
 		if (folderId === null) return this.activeNotes.length;
+		const workspaceId = paneWorkspaceId(folderId);
+		if (workspaceId) return this.activeNotes.filter((n) => n.workspaceId === workspaceId).length;
 		return this.activeNotes.filter((n) => n.folderId === folderId).length;
 	}
 
 	/** Notes for the current folder, filtered by the search query, newest first. */
 	listFor(folderId: string | null | 'trash'): Note[] {
+		const workspaceId = paneWorkspaceId(folderId);
 		const base =
 			folderId === 'trash'
 				? this.trashedNotes
 				: folderId === null
 					? this.activeNotes
-					: this.activeNotes.filter((n) => n.folderId === folderId);
+					: workspaceId
+						? this.activeNotes.filter((n) => n.workspaceId === workspaceId)
+						: this.activeNotes.filter((n) => n.folderId === folderId);
 
 		const q = this.query.trim().toLowerCase();
 		const filtered = q
 			? base.filter(
-					(n) => n.body.toLowerCase().includes(q) || noteTitle(n).toLowerCase().includes(q)
+					(n) => this.#searchText(n).includes(q) || noteTitle(n).toLowerCase().includes(q)
 				)
 			: base;
 
@@ -348,6 +467,27 @@ class NotesStore {
 		const identity = makeIdentity();
 		this.setPref('identity', identity);
 		return identity;
+	}
+
+	/**
+	 * Notes linking to a given title.
+	 *
+	 * Derived, never stored: a stored index would go stale the moment a note is
+	 * renamed or edited, and this is cheap enough to compute — the scan is over
+	 * link syntax, not note bodies.
+	 */
+	backlinksTo(title: string): Note[] {
+		const target = title.trim().toLowerCase();
+		if (!target) return [];
+		return this.activeNotes.filter((note) =>
+			linkedTitles(note.body).some((linked) => linked.toLowerCase() === target)
+		);
+	}
+
+	/** Resolve a wiki-link title to a note, case-insensitively. */
+	findByTitle(title: string): Note | undefined {
+		const target = title.trim().toLowerCase();
+		return this.activeNotes.find((note) => noteTitle(note).toLowerCase() === target);
 	}
 
 	/** Record a dictation language so the quick-switch can offer it. */

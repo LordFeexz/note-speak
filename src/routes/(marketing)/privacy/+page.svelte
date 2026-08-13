@@ -1,7 +1,7 @@
 <script lang="ts">
 	import LegalPage from '$lib/marketing/legal-page.svelte';
 
-	const UPDATED = '12 August 2026';
+	const UPDATED = '13 August 2026';
 </script>
 
 <svelte:head>
@@ -49,6 +49,21 @@
 				<td>Our signalling server briefly sees your IP address and an anonymous room identifier.</td
 				>
 			</tr>
+			<tr>
+				<td>Workspace passphrase</td>
+				<td>
+					Never stored and never transmitted. The key derived from it is kept in IndexedDB on your
+					device, so you are not asked for it again — see <a href="#workspaces">below</a>.
+				</td>
+			</tr>
+			<tr>
+				<td>Images, video and files you add</td>
+				<td>Stored inside the note itself, on your device. Never uploaded anywhere.</td>
+			</tr>
+			<tr>
+				<td>Embedded links (YouTube, Instagram, …)</td>
+				<td>Nothing is requested until you press play — see <a href="#embeds">below</a>.</td>
+			</tr>
 			<tr
 				><td>Analytics, cookies, advertising identifiers</td><td>None. We use none of these.</td
 				></tr
@@ -67,6 +82,31 @@
 	<p>
 		If that matters to you, do not use the dictation feature — typing sends nothing anywhere. Their
 		handling of the audio is governed by their privacy policies, not this one.
+	</p>
+
+	<h2 id="embeds">Embedded links</h2>
+	<p>
+		Pasting a YouTube, Instagram or other link on its own line shows a card. That card is drawn
+		entirely on your device from the link's own text — <strong
+			>no request is made to YouTube, Meta, or anyone else when you open the note.</strong
+		>
+	</p>
+	<p>
+		Pressing play is what changes that: at that point a player loads from that platform, and from
+		then on their own privacy policy applies to that connection. YouTube is loaded through
+		<code>youtube-nocookie.com</code>, and the player runs sandboxed. If you never press play,
+		nothing is ever requested.
+	</p>
+	<p>
+		One detail worth stating plainly: when you press play, the platform is told which
+		<em>site</em> the player is embedded on — that is how these players verify they are allowed to run,
+		and they refuse to load without it. It is never told which note you are reading, and your note's contents
+		are never part of that request.
+	</p>
+	<p>
+		Images, video, audio and files you add are stored as data inside the note itself. They are not
+		uploaded to us or to any third-party host, which is also why they are size-limited: the note has
+		to carry them.
 	</p>
 
 	<h2>Shared notes</h2>
@@ -92,6 +132,39 @@
 		connecting IP address, an anonymous room identifier, and the timing of connections. It does not
 		see, log, or store note content.
 	</p>
+
+	<h2 id="workspaces">Workspaces</h2>
+	<p>
+		A workspace is a shared note list. Everything in it is derived from a passphrase you choose: the
+		encryption key, the signing key, and even the identifier of the room the members meet in. That
+		last part matters — because the room is derived from the secret, an invite link on its own
+		carries no identifier, joins nothing, and tells our signalling server nothing about which
+		workspace anyone was invited to. It contains a random salt and the name you typed, and nothing
+		else.
+	</p>
+	<p>
+		The passphrase itself is never stored and never transmitted. The key derived from it is kept in
+		your browser's storage so you are not asked for it on every launch — which means it sits on your
+		device with the same protection as the notes themselves. Anyone with access to your unlocked
+		device has access to your workspaces.
+	</p>
+	<p>Three consequences worth stating plainly:</p>
+	<ul>
+		<li>
+			<strong>Everyone with the passphrase can edit everything</strong> in the workspace. There are no
+			roles or permissions, because with no server there is nothing that could enforce them. To share
+			something without granting edits, use a per-note view link instead.
+		</li>
+		<li>
+			<strong>We cannot reset a passphrase.</strong> We do not know it, do not know the workspace exists,
+			and hold nothing to reset it against. If every member forgets it, the workspace is gone.
+		</li>
+		<li>
+			<strong>A workspace note is reachable while a member who has it is online.</strong> Nothing is stored
+			on a server, so if everyone is offline, the notes you have not already opened cannot be fetched.
+			Notes you have opened remain on your device and work offline.
+		</li>
+	</ul>
 
 	<h2>Things we cannot do for you</h2>
 	<ul>

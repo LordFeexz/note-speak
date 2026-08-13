@@ -15,6 +15,7 @@
 	import Download04Icon from '@hugeicons/core-free-icons/Download04Icon';
 	import PinIcon from '@hugeicons/core-free-icons/PinIcon';
 	import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
+	import UserGroupIcon from '@hugeicons/core-free-icons/UserGroupIcon';
 
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
@@ -23,7 +24,8 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Empty from '$lib/components/ui/empty';
-	import { notes, SORT_LABELS, type SortBy } from '$lib/stores/notes.svelte';
+	import { notes, SORT_LABELS, WORKSPACE_PREFIX, type SortBy } from '$lib/stores/notes.svelte';
+	import { workspaces } from '$lib/workspace/store.svelte';
 	import { exportNoteMarkdown } from '$lib/data/transfer';
 	import { noteTitle, notePreview, type Note } from '$lib/types';
 	import { dur } from '$lib/motion.svelte';
@@ -52,12 +54,18 @@
 
 	const list = $derived(notes.listFor(folderId));
 	const isTrash = $derived(folderId === 'trash');
+	const workspaceId = $derived(
+		typeof folderId === 'string' && folderId.startsWith(WORKSPACE_PREFIX)
+			? folderId.slice(WORKSPACE_PREFIX.length)
+			: null
+	);
+	const workspace = $derived(workspaceId ? workspaces.get(workspaceId) : undefined);
 	const heading = $derived(
 		folderId === 'trash'
 			? 'Trash'
 			: folderId === null
 				? 'All Notes'
-				: (notes.folders.find((f) => f.id === folderId)?.name ?? 'Notes')
+				: (workspace?.name ?? notes.folders.find((f) => f.id === folderId)?.name ?? 'Notes')
 	);
 
 	function formatDate(ts: number) {
@@ -68,6 +76,17 @@
 		if (date.getFullYear() === now.getFullYear())
 			return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 		return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+	}
+
+	async function addToWorkspace(id: string, note: Note) {
+		const ok = await workspaces.addNote(id, note);
+		if (!ok) {
+			toast('That workspace is still connecting. Try again in a moment.');
+			return;
+		}
+		toast(`Added to ${workspaces.get(id)?.name ?? 'the workspace'}`, {
+			description: 'Members can now edit this note. It stays on your device too.'
+		});
 	}
 
 	function trash(note: Note) {
@@ -160,7 +179,13 @@
 					<Empty.Header>
 						<Empty.Media variant="icon">
 							<HugeiconsIcon
-								icon={notes.query ? Search01Icon : isTrash ? Delete02Icon : Note01Icon}
+								icon={notes.query
+									? Search01Icon
+									: isTrash
+										? Delete02Icon
+										: workspace
+											? UserGroupIcon
+											: Note01Icon}
 								strokeWidth={2}
 							/>
 						</Empty.Media>
@@ -169,6 +194,8 @@
 								No matches
 							{:else if isTrash}
 								Trash is empty
+							{:else if workspace}
+								Nothing here yet
 							{:else}
 								No notes yet
 							{/if}
@@ -178,6 +205,21 @@
 								Nothing here matches “{notes.query}”.
 							{:else if isTrash}
 								Deleted notes land here so you can restore them.
+							{:else if workspace}
+								<!--
+									Two genuinely different situations that look identical from here,
+									and neither can be ruled out without a server: an empty
+									workspace, and one whose members are all offline. Saying both is
+									the only accurate option.
+								-->
+								{#if workspaces.status[workspace.id] === 'connected'}
+									This workspace is empty. Add a note, and every member gets it.
+								{:else}
+									Nobody else is here yet. Either no member is online right now, or the passphrase
+									does not match theirs — from this side the two look identical, because there is no
+									server that could tell them apart. Notes you have opened before stay available
+									offline.
+								{/if}
 							{:else}
 								Start typing, or dictate one with your voice.
 							{/if}
@@ -285,6 +327,31 @@
 											</DropdownMenu.Item>
 										{/each}
 									</DropdownMenu.Group>
+									{#if workspaces.workspaces.length > 0}
+										<DropdownMenu.Separator />
+										<DropdownMenu.Group>
+											<DropdownMenu.Label>Workspace</DropdownMenu.Label>
+											{#each workspaces.workspaces as workspace (workspace.id)}
+												{#if note.workspaceId === workspace.id}
+													<DropdownMenu.Item
+														onSelect={() =>
+															note.share && workspaces.removeNote(workspace.id, note.share.docId)}
+													>
+														<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+														Remove from {workspace.name}
+													</DropdownMenu.Item>
+												{:else}
+													<DropdownMenu.Item
+														disabled={!!note.workspaceId}
+														onSelect={() => addToWorkspace(workspace.id, note)}
+													>
+														<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+														Add to {workspace.name}
+													</DropdownMenu.Item>
+												{/if}
+											{/each}
+										</DropdownMenu.Group>
+									{/if}
 									<DropdownMenu.Separator />
 									<DropdownMenu.Group>
 										<DropdownMenu.Item onSelect={() => notes.togglePin(note.id)}>

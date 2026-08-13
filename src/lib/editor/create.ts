@@ -1,10 +1,17 @@
-import { Editor, type Content } from '@tiptap/core';
+import { Editor, Extension, type AnyExtension, type Content } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
+import Image from '@tiptap/extension-image';
 import { Markdown } from 'tiptap-markdown';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { DictationInterim } from './interim';
+import { DIRECTIVE_NAMES, RAW_DIRECTIVES, directivePlugin } from './directive';
+import { Callout, Toggle, Columns, Column, Video, Audio, FileBlock, Voice } from './nodes';
+import { Embed } from './embed';
+import { WikiLink, wikilinkPlugin } from './wikilink';
+import { MathBlock, MermaidPreview, mathPlugin } from './math';
 
 // tiptap-markdown predates Tiptap 3's typed `Storage`, so it registers its
 // extension at runtime without declaring it. Merge the shape in rather than
@@ -13,6 +20,97 @@ declare module '@tiptap/core' {
 	interface Storage {
 		markdown: { getMarkdown: () => string };
 	}
+}
+
+/**
+ * Registers the `:::directive` block rule with markdown-it.
+ *
+ * A separate extension rather than a hook on each node: markdown-it needs the
+ * complete name list up front to decide what to consume, and one rule is
+ * cheaper than nine.
+ */
+const DirectiveSupport = Extension.create({
+	name: 'directiveSupport',
+	addStorage() {
+		return {
+			markdown: {
+				parse: {
+					setup(markdownit: unknown) {
+						directivePlugin(DIRECTIVE_NAMES, RAW_DIRECTIVES)(markdownit as never);
+						wikilinkPlugin()(markdownit as never);
+						mathPlugin()(markdownit as never);
+					}
+				}
+			}
+		};
+	}
+});
+
+/**
+ * The extensions every note editor gets, local or shared.
+ *
+ * Deliberately one function rather than two arrays. The local and collaborative
+ * editors previously listed their extensions separately, which meant a node
+ * added to only one of them would appear to work and then vanish the moment the
+ * note was shared — silently, and with no way to get the content back.
+ */
+export function baseExtensions(
+	options: { collaborative?: boolean; slash?: AnyExtension } = {}
+): AnyExtension[] {
+	return [
+		StarterKit.configure({
+			// Yjs ships its own undo manager that knows who made each change.
+			// Running ProseMirror's alongside it means ⌘Z undoes a collaborator's
+			// typing, which is the classic way to ruin shared editing.
+			undoRedo: options.collaborative ? false : undefined,
+			// Notes have no title field — the first line *is* the title, so a
+			// document that starts with an H1 would double up in the list.
+			heading: { levels: [1, 2, 3] },
+			link: { openOnClick: false, autolink: true }
+		}),
+		TaskList,
+		// nested lets a checklist item hold sub-items; onReadOnlyChecked keeps
+		// boxes tappable in a trashed note without making the text editable.
+		TaskItem.configure({ nested: true, onReadOnlyChecked: () => false }),
+		// Column resizing is a drag interaction with no touch equivalent, and a
+		// note pane is too narrow for it to be worth the handles.
+		Table.configure({ resizable: false }),
+		TableRow,
+		TableHeader,
+		TableCell,
+		// Images are referenced by URL. There is no backend, so a local file could
+		// only be inlined as a base64 data URI inside the note's own markdown —
+		// which would bloat storage, pollute search, and be re-signed and relayed
+		// on every shared-note update.
+		Image.configure({ inline: false, allowBase64: false }),
+		Callout,
+		Toggle,
+		Columns,
+		Column,
+		Video,
+		Audio,
+		FileBlock,
+		Voice,
+		Embed,
+		WikiLink,
+		MathBlock,
+		MermaidPreview,
+		Markdown.configure({
+			// Deliberately off. Blocks Markdown cannot express use the `:::directive`
+			// parser instead, so a shared note — content authored by someone else's
+			// browser — can only ever produce node types we defined.
+			html: false,
+			transformPastedText: true,
+			transformCopiedText: true,
+			breaks: true,
+			// Bullets use `*`; `normalizeListMarkers` rewrites checklist items back
+			// to `-`. See the note there — the two markers must differ.
+			bulletListMarker: '*'
+		}),
+		DirectiveSupport,
+		DictationInterim,
+		...(options.slash ? [options.slash] : [])
+	];
 }
 
 /**
@@ -29,33 +127,13 @@ export function createNoteEditor(options: {
 	editable: boolean;
 	onUpdate: (markdown: string) => void;
 	onCreate?: () => void;
+	slash?: AnyExtension;
 }): Editor {
 	return new Editor({
 		element: options.element,
 		content: normalizeListMarkers(options.content),
 		editable: options.editable,
-		extensions: [
-			StarterKit.configure({
-				// Notes have no title field — the first line *is* the title, so a
-				// document that starts with an H1 would double up in the list.
-				heading: { levels: [1, 2, 3] },
-				link: { openOnClick: false, autolink: true }
-			}),
-			TaskList,
-			// nested lets a checklist item hold sub-items; onReadOnlyChecked keeps
-			// boxes tappable in a trashed note without making the text editable.
-			TaskItem.configure({ nested: true, onReadOnlyChecked: () => false }),
-			Markdown.configure({
-				html: false,
-				transformPastedText: true,
-				transformCopiedText: true,
-				breaks: true,
-				// Bullets use `*`; `serializeMarkdown` rewrites checklist items back to
-				// `-`. See the note there — the two markers must differ.
-				bulletListMarker: '*'
-			}),
-			DictationInterim
-		],
+		extensions: baseExtensions({ slash: options.slash }),
 		editorProps: {
 			attributes: {
 				class: 'note-prose focus:outline-none',
@@ -102,6 +180,12 @@ export function normalizeListMarkers(markdown: string): string {
 			}
 			if (inFence) return line;
 
+			// A spaced horizontal rule (`- - -`, `* * *`) starts with a bullet
+			// character followed by a space, so the rule below would rewrite it into
+			// a list item. The app only ever emits `---`, but an imported file may
+			// use this form, and normalisation runs on the way in as well as out.
+			if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) return line;
+
 			const task = line.match(/^([ \t]*)[-*+](\s+\[[ xX]\]\s)/);
 			if (task) return `${task[1]}-${task[2]}${line.slice(task[0].length)}`;
 
@@ -113,21 +197,32 @@ export function normalizeListMarkers(markdown: string): string {
 		.join('\n');
 }
 
+/**
+ * Put a blank line after a block image.
+ *
+ * The serializer emits `![alt](url)After` when a paragraph follows an image.
+ * markdown-it parses that back into the same three blocks, so nothing is lost
+ * here — but in CommonMark it is a *single* paragraph, so any other editor would
+ * render the following text beside the image. Storing markdown is for
+ * portability, so it should be correct markdown elsewhere too.
+ */
+function separateBlockImages(markdown: string): string {
+	return markdown.replace(/^(!\[[^\]]*\]\([^)\s]*\))(?=\S)/gm, '$1\n\n');
+}
+
 /** Serialize the current document back to markdown. */
 export function getMarkdown(editor: Editor): string {
-	return normalizeListMarkers(editor.storage.markdown.getMarkdown());
+	return separateBlockImages(normalizeListMarkers(editor.storage.markdown.getMarkdown()));
 }
 
 /**
  * The same editor, bound to a shared Yjs document.
  *
- * Two differences from the local editor, both load-bearing:
- *
- * - `undoRedo: false`. Yjs ships its own undo manager that is aware of who made
- *   each change; running ProseMirror's alongside it means ⌘Z undoes a
- *   collaborator's typing, which is the classic way to ruin shared editing.
- * - Content comes from the Y fragment, never from `setContent`. Writing local
- *   markdown into a live shared document would clobber concurrent edits.
+ * Shares `baseExtensions()` with the local editor so the two can never drift —
+ * a node present in one but not the other would vanish on sharing. The only
+ * differences: Yjs owns undo, and content comes from the Y fragment rather than
+ * `setContent`, because writing local markdown into a live shared document
+ * would clobber concurrent edits.
  */
 export function createSharedEditor(options: {
 	element: HTMLElement;
@@ -136,26 +231,13 @@ export function createSharedEditor(options: {
 	user: { name: string; color: string };
 	editable: boolean;
 	onUpdate: (markdown: string) => void;
+	slash?: AnyExtension;
 }): Editor {
 	return new Editor({
 		element: options.element,
 		editable: options.editable,
 		extensions: [
-			StarterKit.configure({
-				undoRedo: false,
-				heading: { levels: [1, 2, 3] },
-				link: { openOnClick: false, autolink: true }
-			}),
-			TaskList,
-			TaskItem.configure({ nested: true, onReadOnlyChecked: () => false }),
-			Markdown.configure({
-				html: false,
-				transformPastedText: true,
-				transformCopiedText: true,
-				breaks: true,
-				bulletListMarker: '*'
-			}),
-			DictationInterim,
+			...baseExtensions({ collaborative: true, slash: options.slash }),
 			Collaboration.configure({ fragment: options.fragment as never }),
 			CollaborationCaret.configure({
 				provider: { awareness: options.awareness } as never,

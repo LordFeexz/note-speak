@@ -12,10 +12,12 @@
 	import NoteList from '$lib/components/note-list.svelte';
 	import NoteEditor from '$lib/components/note-editor.svelte';
 	import ShortcutsDialog from '$lib/components/shortcuts-dialog.svelte';
-	import { notes } from '$lib/stores/notes.svelte';
+	import { notes, WORKSPACE_PREFIX } from '$lib/stores/notes.svelte';
+	import { workspaces } from '$lib/workspace/store.svelte';
 	import { speech } from '$lib/stores/speech.svelte';
 	import { isCompact, dur } from '$lib/motion.svelte';
 	import { trackViewportHeight } from '$lib/viewport.svelte';
+	import { history } from '$lib/history/store.svelte';
 	import type { Note } from '$lib/types';
 
 	let folderId = $state<string | null | 'trash'>(null);
@@ -38,6 +40,11 @@
 			const urlNote = page.url.searchParams.get('note');
 			if (urlFolder === 'trash') folderId = 'trash';
 			else if (urlFolder && notes.folders.some((f) => f.id === urlFolder)) folderId = urlFolder;
+			else if (urlFolder?.startsWith(WORKSPACE_PREFIX)) {
+				// Workspaces load after notes, so this pane may not exist yet; the rail
+				// simply shows nothing selected until it does, which is honest.
+				folderId = urlFolder;
+			}
 			if (urlNote && notes.notes.some((n) => n.id === urlNote)) {
 				noteId = urlNote;
 				view = 'editor';
@@ -50,12 +57,21 @@
 			if (notes.prefs.voiceCommands === false) speech.commands = false;
 			if (notes.prefs.autoPunctuate === false) speech.autoPunctuate = false;
 			void handleLaunchParams();
+			// After notes, because the index mirrors entries into the note list and
+			// would otherwise race the initial load.
+			void workspaces.load();
 		});
 
 		const untrackViewport = trackViewportHeight();
 
 		// Persist immediately when the tab goes away — debounced writes can be pending.
-		const onHide = () => notes.flush();
+		const onHide = () => {
+			// Close the open editing session too — leaving the tab is the clearest
+			// signal that a session ended.
+			const open = notes.getNote(noteId);
+			if (open) void history.commit(open.id, open.body);
+			notes.flush();
+		};
 		window.addEventListener('pagehide', onHide);
 		document.addEventListener('visibilitychange', () => {
 			if (document.visibilityState === 'hidden') {
@@ -105,8 +121,17 @@
 	function createNote(body = '') {
 		if (folderId === 'trash') folderId = null;
 		notes.query = '';
-		const created = notes.createNote(typeof folderId === 'string' ? folderId : null);
+		const inWorkspace =
+			typeof folderId === 'string' && folderId.startsWith(WORKSPACE_PREFIX)
+				? folderId.slice(WORKSPACE_PREFIX.length)
+				: null;
+		// A workspace is not a folder, so a note created in one belongs to no folder.
+		const created = notes.createNote(
+			typeof folderId === 'string' && !inWorkspace ? folderId : null
+		);
 		if (body) notes.updateBody(created.id, body);
+		// Shared from birth: creating it here means it is meant for the workspace.
+		if (inWorkspace) void workspaces.addNote(inWorkspace, created);
 		noteId = created.id;
 		view = 'editor';
 		setTimeout(() => editor?.focusEditor(), 0);
@@ -234,6 +259,7 @@
 						onback={() => (view = 'list')}
 						oncreate={createNote}
 						ontrash={trashNote}
+						onopennote={selectNote}
 					/>
 				</div>
 			{/if}
@@ -286,6 +312,7 @@
 					onback={() => {}}
 					oncreate={createNote}
 					ontrash={trashNote}
+					onopennote={selectNote}
 				/>
 			</Resizable.Pane>
 		</Resizable.PaneGroup>

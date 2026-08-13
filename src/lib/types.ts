@@ -36,6 +36,14 @@ export type Note = {
 	tags: string[];
 	/** Non-null means the note is shared and the Yjs doc owns its content. */
 	share: ShareInfo | null;
+	/**
+	 * Set when the note belongs to a workspace.
+	 *
+	 * A workspace note is an ordinary shared note whose credentials live in the
+	 * workspace's encrypted index, so this is only a grouping key — everything
+	 * needed to open it is still in `share`.
+	 */
+	workspaceId?: string | null;
 };
 
 export type Folder = {
@@ -55,12 +63,44 @@ export type Selection = { folderId: string | null | 'trash'; noteId: string | nu
  * "Welcome to Note Speak\" in the note list.
  */
 function plainify(line: string): string {
-	return line
-		.replace(/\\$/, '')
-		.replace(/^#{1,6}\s+/, '')
-		.replace(/^[-*+]\s+(\[[ xX]\]\s+)?/, '')
-		.replace(/^>\s?/, '')
-		.trim();
+	return (
+		line
+			.replace(/\\$/, '')
+			.replace(/^#{1,6}\s+/, '')
+			.replace(/^[-*+]\s+(\[[ xX]\]\s+)?/, '')
+			.replace(/^>\s?/, '')
+			// A table row would otherwise become the title verbatim, as "| a | b |",
+			// and its delimiter row as "|---|---|".
+			.replace(/^\|[\s:|-]*\|$/, '')
+			.replace(/^\|\s*/, '')
+			.replace(/\s*\|$/, '')
+			.replace(/\s*\|\s*/g, ' · ')
+			// Images carry no readable text; keep the alt text if there is any. The
+			// non-greedy URL match matters: a base64 data URI is megabytes long and a
+			// greedy `[^)]*` would backtrack across the whole note.
+			.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+			// Directive fences and their payloads are structure, not prose.
+			.replace(/^:::[a-zA-Z][\w-]*(\{.*\})?$/, '')
+			.replace(/^:::$/, '')
+			.replace(/^data:[^\s]+$/, '')
+			.trim()
+	);
+}
+
+/**
+ * Text worth searching, with media payloads removed.
+ *
+ * `listFor()` runs a substring match over every note on each keystroke. With a
+ * base64 image embedded, that means lowercasing hundreds of KB per note per
+ * keypress — for a handful of notes with photos it is megabytes of pointless
+ * scanning, and the search box visibly stutters. Stripping the payloads keeps
+ * the cost proportional to the prose.
+ */
+export function searchableText(body: string): string {
+	return body
+		.replace(/data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, '')
+		.replace(/^:::[a-zA-Z][\w-]*(\{.*\})?$/gm, '')
+		.replace(/^:::$/gm, '');
 }
 
 /** Derived note title: first non-empty line, macOS Notes style. */

@@ -82,6 +82,44 @@ export default defineConfig({
 			workbox: {
 				// woff2 matters: without it the app falls back to a system font offline.
 				globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
+				/**
+				 * Keep the heavy renderers out of the install payload.
+				 *
+				 * Lazy-importing mermaid and KaTeX is not enough on its own: the glob
+				 * above sweeps *every* built chunk into the precache, so a dynamic
+				 * import would still be downloaded by every user at install time.
+				 * Excluding them means they load on first use and are cached at
+				 * runtime instead.
+				 *
+				 * The tradeoff, stated in the UI: a diagram or formula does not render
+				 * offline until it has been opened online once.
+				 */
+				/**
+				 * Mermaid and KaTeX are bundled, and that is a real cost: the precache
+				 * goes from ~1.6 MB to ~5.4 MB, which every user downloads at install.
+				 *
+				 * Three ways to keep them out were tried and none works here. Chunk
+				 * filenames are opaque hashes, so a glob cannot match them. SvelteKit
+				 * owns `chunkFileNames`, so they cannot be routed to their own
+				 * directory. And a size ceiling both fails the build outright and
+				 * cannot separate them anyway — the largest app chunk is 435 kB against
+				 * renderer chunks of 662–679 kB.
+				 *
+				 * The workable fix, if the payload matters more than the convenience,
+				 * is to self-host mermaid from `static/` where the filename is ours to
+				 * control — or to drop mermaid, which is the bulk of it and which
+				 * bundles KaTeX itself.
+				 */
+				runtimeCaching: [
+					{
+						urlPattern: /\/_app\/immutable\/.*\.(?:js|css)$/,
+						handler: 'CacheFirst',
+						options: {
+							cacheName: 'note-speak-renderers',
+							expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 90 }
+						}
+					}
+				],
 				// Unknown routes get the *app* shell, which is what /s/<docId> needs
 				// offline. The marketing and legal pages are prerendered HTML files and
 				// are precached directly, so they never reach this fallback.
