@@ -2,14 +2,14 @@
  * Diagram and formula rendering, loaded only when a note needs it.
  *
  * Both libraries are large — mermaid alone is bigger than the rest of the app —
- * so they are dynamically imported *and* excluded from the service worker's
- * precache in `vite.config.ts`. Lazy loading alone would not help: the workbox
- * `globPatterns` sweep precaches every built chunk, so a dynamic import still
- * ships to every user at install time.
+ * so they are dynamically imported, which keeps them out of the initial parse
+ * for the great majority of notes that contain neither.
  *
- * The honest consequence, which the UI states: a diagram or formula does not
- * render offline until it has been opened online once. Everything else in the
- * app works with no connection at all.
+ * They are **not** kept out of the service worker's precache. Three ways to
+ * exclude them were tried and none works with SvelteKit's opaque chunk names;
+ * `vite.config.ts` records the attempts. So they are downloaded at install time
+ * and *do* work offline — the "needs to load online once" strings below are a
+ * fallback for a render that fails while offline, not the normal case.
  */
 
 type MermaidApi = {

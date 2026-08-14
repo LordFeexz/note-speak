@@ -85,8 +85,15 @@ class WorkspaceStore {
 	peers = $state<Record<string, number>>({});
 	/** Entry counts straight from the index, including notes not held locally. */
 	sizes = $state<Record<string, number>>({});
-	/** Last background failure, surfaced by the UI rather than swallowed. */
-	lastError = $state('');
+	/**
+	 * Last background failure, as a code the rail turns into a toast.
+	 *
+	 * Not swallowed: a note that fails to publish looks, to every other member,
+	 * exactly like a note with nothing in it. The counter makes a repeat of the
+	 * same failure a new event, so the second one is not silently dropped.
+	 */
+	lastError = $state<{ code: 'publish-failed'; detail: string; seq: number } | null>(null);
+	#errorSeq = 0;
 
 	#sessions = new Map<string, Session>();
 	/**
@@ -314,9 +321,11 @@ class WorkspaceStore {
 			this.#noteSessions.delete(share.docId);
 			// Never silent: a note that fails to publish looks to every other member
 			// exactly like a note with nothing in it.
-			this.lastError = `Could not publish a workspace note: ${
-				error instanceof Error ? error.message : String(error)
-			}`;
+			this.lastError = {
+				code: 'publish-failed',
+				detail: error instanceof Error ? error.message : String(error),
+				seq: ++this.#errorSeq
+			};
 		}
 	}
 
@@ -360,9 +369,11 @@ class WorkspaceStore {
 		try {
 			editor.commands.setContent(normalizeListMarkers(body));
 		} catch (error) {
-			this.lastError = `Could not publish a workspace note: ${
-				error instanceof Error ? error.message : String(error)
-			}`;
+			this.lastError = {
+				code: 'publish-failed',
+				detail: error instanceof Error ? error.message : String(error),
+				seq: ++this.#errorSeq
+			};
 		} finally {
 			editor.destroy();
 			host.remove();

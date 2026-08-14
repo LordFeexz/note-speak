@@ -9,6 +9,48 @@
 	import { notes, workspacePane } from '$lib/stores/notes.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
 	import { parseInvite } from '$lib/workspace/keys';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	const DICT: Dict<{
+		pageTitle: string;
+		reading: string;
+		aWorkspace: string;
+		needPassphrase: string;
+		enterPassphrase: string;
+		incompleteTitle: string;
+		incompleteBefore: string;
+		incompleteAfter: string;
+		goToNotes: string;
+	}> = {
+		en: {
+			pageTitle: 'Join a workspace · Note Speak',
+			reading: 'Reading the invite…',
+			aWorkspace: 'A workspace',
+			needPassphrase:
+				'You have the link. You also need the passphrase — it never travels with the link, and there is no way to recover it or reset it.',
+			enterPassphrase: 'Enter the passphrase',
+			incompleteTitle: 'This invite link is incomplete',
+			incompleteBefore: 'The part after the ',
+			incompleteAfter:
+				' is missing, which is the part that carries the invite. Ask for the link again, and paste it rather than retyping it.',
+			goToNotes: 'Go to my notes'
+		},
+		id: {
+			pageTitle: 'Gabung ke ruang kerja · Note Speak',
+			reading: 'Membaca undangan…',
+			aWorkspace: 'Sebuah ruang kerja',
+			needPassphrase:
+				'Anda punya tautannya. Anda juga perlu frasa sandinya — frasa itu tidak pernah ikut di tautan, dan tidak ada cara memulihkan atau menyetel ulangnya.',
+			enterPassphrase: 'Masukkan frasa sandi',
+			incompleteTitle: 'Tautan undangan ini tidak lengkap',
+			incompleteBefore: 'Bagian setelah ',
+			incompleteAfter:
+				' hilang, padahal bagian itulah yang membawa undangannya. Minta tautannya lagi, lalu tempel — jangan diketik ulang.',
+			goToNotes: 'Buka catatan saya'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	/**
 	 * The join landing page for an invite link.
@@ -39,7 +81,7 @@
 </script>
 
 <svelte:head>
-	<title>Join a workspace · Note Speak</title>
+	<title>{t.pageTitle}</title>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
@@ -52,28 +94,24 @@
 		</div>
 
 		{#if !ready}
-			<p class="text-sm text-muted-foreground">Reading the invite…</p>
+			<p class="text-sm text-muted-foreground">{t.reading}</p>
 		{:else if invite}
 			<h1 class="text-xl font-semibold tracking-tight">
-				{invite.name || 'A workspace'}
+				{invite.name || t.aWorkspace}
 			</h1>
-			<p class="mt-2 text-sm text-muted-foreground">
-				You have the link. You also need the passphrase — it never travels with the link, and there
-				is no way to recover it or reset it.
-			</p>
-			<Button class="mt-6 w-full" onclick={() => (open = true)}>Enter the passphrase</Button>
+			<p class="mt-2 text-sm text-muted-foreground">{t.needPassphrase}</p>
+			<Button class="mt-6 w-full" onclick={() => (open = true)}>{t.enterPassphrase}</Button>
 		{:else}
-			<h1 class="text-xl font-semibold tracking-tight">This invite link is incomplete</h1>
+			<h1 class="text-xl font-semibold tracking-tight">{t.incompleteTitle}</h1>
 			<!--
 				Specific about the likely cause. The salt lives in the fragment, which is
 				exactly the part chat apps and email clients truncate.
 			-->
 			<p class="mt-2 text-sm text-muted-foreground">
-				The part after the <code class="rounded bg-muted px-1 py-0.5 text-xs">#</code> is missing, which
-				is the part that carries the invite. Ask for the link again, and paste it rather than retyping
-				it.
+				{t.incompleteBefore}<code class="rounded bg-muted px-1 py-0.5 text-xs">#</code
+				>{t.incompleteAfter}
 			</p>
-			<Button variant="outline" class="mt-6 w-full" href={resolve('/app')}>Go to my notes</Button>
+			<Button variant="outline" class="mt-6 w-full" href={resolve('/app')}>{t.goToNotes}</Button>
 		{/if}
 	</div>
 </div>

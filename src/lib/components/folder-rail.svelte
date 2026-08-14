@@ -14,8 +14,11 @@
 	import PlusSignIcon from '@hugeicons/core-free-icons/PlusSignIcon';
 	import Link01Icon from '@hugeicons/core-free-icons/Link01Icon';
 	import Logout01Icon from '@hugeicons/core-free-icons/Logout01Icon';
+	import Globe02Icon from '@hugeicons/core-free-icons/Globe02Icon';
+	import Book02Icon from '@hugeicons/core-free-icons/Book02Icon';
 
 	import { toggleMode, mode } from 'mode-watcher';
+	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
@@ -25,10 +28,133 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { notes, workspacePane } from '$lib/stores/notes.svelte';
 	import { workspaces, type WorkspaceRecord } from '$lib/workspace/store.svelte';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import { docHref } from '$lib/docs/nav';
+	import { LANGS, LANG_LABELS } from '$lib/i18n/lang';
+	import type { Dict } from '$lib/i18n/dict';
+
 	import type { Folder } from '$lib/types';
 	import InstallPrompt from './install-prompt.svelte';
 	import BackupDialog from './backup-dialog.svelte';
 	import WorkspaceDialog from './workspace-dialog.svelte';
+
+	const DICT: Dict<{
+		foldersNav: string;
+		allNotes: string;
+		trash: string;
+		optionsFor: (name: string) => string;
+		rename: string;
+		deleteFolder: string;
+		folderNamePlaceholder: string;
+		newFolderLabel: string;
+		workspaces: string;
+		addWorkspace: string;
+		newWorkspace: string;
+		joinWithLink: string;
+		workspacesEmpty: string;
+		membersOnline: (n: number) => string;
+		noneOnline: string;
+		linkCopied: string;
+		copyInvite: string;
+		leaveWorkspace: string;
+		publishFailed: string;
+		newFolder: string;
+		backup: string;
+		docs: string;
+		shortcuts: string;
+		toggleDarkMode: string;
+		toggleTheme: string;
+		language: string;
+		leaveTitle: (name: string) => string;
+		leaveBody: string;
+		leave: string;
+		cancel: string;
+		renameTitle: string;
+		renameBody: string;
+		folderNameLabel: string;
+		deleteTitle: (name: string) => string;
+		deleteBody: string;
+	}> = {
+		en: {
+			foldersNav: 'Folders',
+			allNotes: 'All Notes',
+			trash: 'Trash',
+			optionsFor: (name) => `Options for ${name}`,
+			rename: 'Rename',
+			deleteFolder: 'Delete folder',
+			folderNamePlaceholder: 'Folder name',
+			newFolderLabel: 'New folder name',
+			workspaces: 'Workspaces',
+			addWorkspace: 'Add a workspace',
+			newWorkspace: 'New workspace',
+			joinWithLink: 'Join with a link',
+			workspacesEmpty:
+				'A shared note list. Nothing is stored on a server, so notes are reachable while a member who has them is online.',
+			membersOnline: (n) => `${n} members online`,
+			noneOnline: 'No other member online',
+			linkCopied: 'Link copied',
+			copyInvite: 'Copy invite link',
+			leaveWorkspace: 'Leave workspace',
+			publishFailed: 'A workspace note could not be published',
+			newFolder: 'New Folder',
+			backup: 'Backup & Restore',
+			docs: 'Help & docs',
+			shortcuts: 'Shortcuts',
+			toggleDarkMode: 'Toggle dark mode',
+			toggleTheme: 'Toggle theme',
+			language: 'Language',
+			leaveTitle: (name) => `Leave “${name}”?`,
+			leaveBody:
+				'This device stops syncing with the workspace, and its notes move to All Notes — nothing is deleted, for you or anyone else. There is no server to record that you left, so rejoining needs the link and the passphrase again.',
+			leave: 'Leave',
+			cancel: 'Cancel',
+			renameTitle: 'Rename folder',
+			renameBody: 'Choose a new name for this folder.',
+			folderNameLabel: 'Folder name',
+			deleteTitle: (name) => `Delete “${name}”?`,
+			deleteBody: 'The folder is removed, but its notes are kept and moved to All Notes.'
+		},
+		id: {
+			foldersNav: 'Folder',
+			allNotes: 'Semua Catatan',
+			trash: 'Sampah',
+			optionsFor: (name) => `Opsi untuk ${name}`,
+			rename: 'Ganti nama',
+			deleteFolder: 'Hapus folder',
+			folderNamePlaceholder: 'Nama folder',
+			newFolderLabel: 'Nama folder baru',
+			workspaces: 'Ruang kerja',
+			addWorkspace: 'Tambah ruang kerja',
+			newWorkspace: 'Ruang kerja baru',
+			joinWithLink: 'Gabung lewat tautan',
+			workspacesEmpty:
+				'Daftar catatan bersama. Tidak ada yang disimpan di server, jadi catatannya bisa dijangkau selama ada anggota yang memilikinya sedang online.',
+			membersOnline: (n) => `${n} anggota online`,
+			noneOnline: 'Tidak ada anggota lain yang online',
+			linkCopied: 'Tautan disalin',
+			copyInvite: 'Salin tautan undangan',
+			leaveWorkspace: 'Keluar dari ruang kerja',
+			publishFailed: 'Sebuah catatan ruang kerja gagal diterbitkan',
+			newFolder: 'Folder Baru',
+			backup: 'Cadangkan & Pulihkan',
+			docs: 'Bantuan & dokumentasi',
+			shortcuts: 'Pintasan',
+			toggleDarkMode: 'Alihkan mode gelap',
+			toggleTheme: 'Alihkan tema',
+			language: 'Bahasa',
+			leaveTitle: (name) => `Keluar dari “${name}”?`,
+			leaveBody:
+				'Perangkat ini berhenti tersinkron dengan ruang kerja, dan catatannya pindah ke Semua Catatan — tidak ada yang dihapus, baik untuk Anda maupun orang lain. Tidak ada server yang mencatat bahwa Anda keluar, jadi untuk bergabung lagi Anda perlu tautan dan frasa sandinya.',
+			leave: 'Keluar',
+			cancel: 'Batal',
+			renameTitle: 'Ganti nama folder',
+			renameBody: 'Pilih nama baru untuk folder ini.',
+			folderNameLabel: 'Nama folder',
+			deleteTitle: (name) => `Hapus “${name}”?`,
+			deleteBody: 'Foldernya dihapus, tetapi catatannya tetap ada dan dipindahkan ke Semua Catatan.'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	type Props = {
 		selected: string | null | 'trash';
@@ -64,6 +190,18 @@
 		workspaces.leave(leaving.id);
 		leaving = null;
 	}
+
+	/**
+	 * Surface background workspace failures.
+	 *
+	 * These happen with no user action behind them, so nothing else would ever
+	 * mention them — and an unpublished note is indistinguishable from an empty
+	 * one for every other member.
+	 */
+	$effect(() => {
+		const failure = workspaces.lastError;
+		if (failure) toast.error(t.publishFailed, { description: failure.detail });
+	});
 
 	/** Members reachable right now — the number that decides whether a note opens. */
 	function reachable(id: string): number {
@@ -112,7 +250,7 @@
 	</header>
 
 	<ScrollArea class="min-h-0 flex-1 scroll-slim">
-		<nav class="flex flex-col gap-0.5 px-2 pb-2" aria-label="Folders">
+		<nav class="flex flex-col gap-0.5 px-2 pb-2" aria-label={t.foldersNav}>
 			<button
 				type="button"
 				class="{itemClass} {selected === null ? activeClass : ''}"
@@ -120,7 +258,7 @@
 				onclick={() => onselect(null)}
 			>
 				<HugeiconsIcon icon={Note01Icon} strokeWidth={2} class="size-4 shrink-0" />
-				<span class="flex-1 truncate text-left">All Notes</span>
+				<span class="flex-1 truncate text-left">{t.allNotes}</span>
 				<span class="text-xs text-muted-foreground tabular-nums">{notes.countIn(null)}</span>
 			</button>
 
@@ -146,7 +284,7 @@
 									variant="ghost"
 									size="icon-sm"
 									class="absolute right-1 opacity-0 group-hover/folder:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-									aria-label="Options for {folder.name}"
+									aria-label={t.optionsFor(folder.name)}
 								>
 									<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
 								</Button>
@@ -161,11 +299,11 @@
 									}}
 								>
 									<HugeiconsIcon icon={Edit02Icon} strokeWidth={2} />
-									Rename
+									{t.rename}
 								</DropdownMenu.Item>
 								<DropdownMenu.Item variant="destructive" onSelect={() => (deleting = folder)}>
 									<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-									Delete folder
+									{t.deleteFolder}
 								</DropdownMenu.Item>
 							</DropdownMenu.Group>
 						</DropdownMenu.Content>
@@ -178,8 +316,8 @@
 				<Input
 					bind:ref={newFolderRef}
 					bind:value={newName}
-					placeholder="Folder name"
-					aria-label="New folder name"
+					placeholder={t.folderNamePlaceholder}
+					aria-label={t.newFolderLabel}
 					class="my-1 h-9"
 					onblur={submitNewFolder}
 					onkeydown={(e) => {
@@ -196,12 +334,12 @@
 
 			<div class="flex items-center justify-between gap-1 px-2 pt-1 pb-1">
 				<h2 class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-					Workspaces
+					{t.workspaces}
 				</h2>
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
 						{#snippet child({ props })}
-							<Button {...props} variant="ghost" size="icon-sm" aria-label="Add a workspace">
+							<Button {...props} variant="ghost" size="icon-sm" aria-label={t.addWorkspace}>
 								<HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
 							</Button>
 						{/snippet}
@@ -214,7 +352,7 @@
 							}}
 						>
 							<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-							New workspace
+							{t.newWorkspace}
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
 							onSelect={() => {
@@ -223,17 +361,14 @@
 							}}
 						>
 							<HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
-							Join with a link
+							{t.joinWithLink}
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
 			</div>
 
 			{#if workspaces.workspaces.length === 0}
-				<p class="px-2 pb-2 text-xs text-muted-foreground">
-					A shared note list. Nothing is stored on a server, so notes are reachable while a member
-					who has them is online.
-				</p>
+				<p class="px-2 pb-2 text-xs text-muted-foreground">{t.workspacesEmpty}</p>
 			{/if}
 
 			{#each workspaces.workspaces as workspace (workspace.id)}
@@ -257,8 +392,8 @@
 								? 'bg-emerald-500'
 								: 'bg-muted-foreground/40'}"
 							title={workspaces.status[workspace.id] === 'connected'
-								? `${reachable(workspace.id)} members online`
-								: 'No other member online'}
+								? t.membersOnline(reachable(workspace.id))
+								: t.noneOnline}
 						></span>
 						<span class="text-xs text-muted-foreground tabular-nums">{notes.countIn(pane)}</span>
 					</button>
@@ -270,7 +405,7 @@
 									variant="ghost"
 									size="icon-sm"
 									class="absolute right-1 opacity-0 group-hover/ws:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-									aria-label="Options for {workspace.name}"
+									aria-label={t.optionsFor(workspace.name)}
 								>
 									<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
 								</Button>
@@ -279,11 +414,11 @@
 						<DropdownMenu.Content align="end">
 							<DropdownMenu.Item onSelect={() => copyInvite(workspace)}>
 								<HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
-								{copied === workspace.id ? 'Link copied' : 'Copy invite link'}
+								{copied === workspace.id ? t.linkCopied : t.copyInvite}
 							</DropdownMenu.Item>
 							<DropdownMenu.Item variant="destructive" onSelect={() => (leaving = workspace)}>
 								<HugeiconsIcon icon={Logout01Icon} strokeWidth={2} />
-								Leave workspace
+								{t.leaveWorkspace}
 							</DropdownMenu.Item>
 						</DropdownMenu.Content>
 					</DropdownMenu.Root>
@@ -299,7 +434,7 @@
 				onclick={() => onselect('trash')}
 			>
 				<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} class="size-4 shrink-0" />
-				<span class="flex-1 truncate text-left">Trash</span>
+				<span class="flex-1 truncate text-left">{t.trash}</span>
 				<span class="text-xs text-muted-foreground tabular-nums">{notes.countIn('trash')}</span>
 			</button>
 		</nav>
@@ -317,7 +452,7 @@
 			}}
 		>
 			<HugeiconsIcon icon={FolderAddIcon} strokeWidth={2} data-icon="inline-start" />
-			New Folder
+			{t.newFolder}
 		</Button>
 		<Button
 			variant="ghost"
@@ -326,13 +461,61 @@
 			onclick={() => (backupOpen = true)}
 		>
 			<HugeiconsIcon icon={Database02Icon} strokeWidth={2} data-icon="inline-start" />
-			Backup & Restore
+			{t.backup}
+		</Button>
+		<!--
+			Opens in a new tab on purpose: installed as a PWA the app has no browser
+			chrome, so navigating away in place would replace the notes window with a
+			documentation page and no visible way back.
+		-->
+		<Button
+			variant="ghost"
+			size="sm"
+			class="w-full justify-start"
+			href={docHref(locale.current, '')}
+			target="_blank"
+			rel="noopener"
+		>
+			<HugeiconsIcon icon={Book02Icon} strokeWidth={2} data-icon="inline-start" />
+			{t.docs}
 		</Button>
 		<div class="flex items-center gap-1">
 			<Button variant="ghost" size="sm" class="flex-1 justify-start" onclick={onshortcuts}>
 				<HugeiconsIcon icon={KeyboardIcon} strokeWidth={2} data-icon="inline-start" />
-				Shortcuts
+				{t.shortcuts}
 			</Button>
+			<!--
+				The language switcher writes a preference rather than changing the URL:
+				the app's path is fixed by the manifest and by every share link already
+				sent, so it is the one place a locale cannot live in the address bar.
+			-->
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon-sm"
+							aria-label="{t.language}: {LANG_LABELS[locale.current]}"
+						>
+							<HugeiconsIcon icon={Globe02Icon} strokeWidth={2} />
+						</Button>
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content align="end">
+					<DropdownMenu.Group>
+						<DropdownMenu.Label>{t.language}</DropdownMenu.Label>
+						{#each LANGS as lang (lang)}
+							<DropdownMenu.CheckboxItem
+								checked={locale.current === lang}
+								onCheckedChange={() => locale.set(lang)}
+							>
+								{LANG_LABELS[lang]}
+							</DropdownMenu.CheckboxItem>
+						{/each}
+					</DropdownMenu.Group>
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
 			<Tooltip.Provider delayDuration={400}>
 				<Tooltip.Root>
 					<Tooltip.Trigger>
@@ -342,7 +525,7 @@
 								variant="ghost"
 								size="icon-sm"
 								onclick={toggleMode}
-								aria-label="Toggle dark mode"
+								aria-label={t.toggleDarkMode}
 							>
 								{#if mode.current === 'dark'}
 									<HugeiconsIcon icon={Sun01Icon} strokeWidth={2} />
@@ -352,7 +535,7 @@
 							</Button>
 						{/snippet}
 					</Tooltip.Trigger>
-					<Tooltip.Content side="top">Toggle theme</Tooltip.Content>
+					<Tooltip.Content side="top">{t.toggleTheme}</Tooltip.Content>
 				</Tooltip.Root>
 			</Tooltip.Provider>
 		</div>
@@ -370,16 +553,12 @@
 <AlertDialog.Root open={!!leaving} onOpenChange={(o) => !o && (leaving = null)}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Leave “{leaving?.name}”?</AlertDialog.Title>
-			<AlertDialog.Description>
-				This device stops syncing with the workspace, and its notes move to All Notes — nothing is
-				deleted, for you or anyone else. There is no server to record that you left, so rejoining
-				needs the link and the passphrase again.
-			</AlertDialog.Description>
+			<AlertDialog.Title>{t.leaveTitle(leaving?.name ?? '')}</AlertDialog.Title>
+			<AlertDialog.Description>{t.leaveBody}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={confirmLeave}>Leave</AlertDialog.Action>
+			<AlertDialog.Cancel>{t.cancel}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={confirmLeave}>{t.leave}</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
@@ -387,17 +566,17 @@
 <AlertDialog.Root open={!!renaming} onOpenChange={(o) => !o && (renaming = null)}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Rename folder</AlertDialog.Title>
-			<AlertDialog.Description>Choose a new name for this folder.</AlertDialog.Description>
+			<AlertDialog.Title>{t.renameTitle}</AlertDialog.Title>
+			<AlertDialog.Description>{t.renameBody}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<Input
 			bind:value={renameValue}
-			aria-label="Folder name"
+			aria-label={t.folderNameLabel}
 			onkeydown={(e) => e.key === 'Enter' && submitRename()}
 		/>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={submitRename}>Rename</AlertDialog.Action>
+			<AlertDialog.Cancel>{t.cancel}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={submitRename}>{t.rename}</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
@@ -405,14 +584,12 @@
 <AlertDialog.Root open={!!deleting} onOpenChange={(o) => !o && (deleting = null)}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Delete “{deleting?.name}”?</AlertDialog.Title>
-			<AlertDialog.Description>
-				The folder is removed, but its notes are kept and moved to All Notes.
-			</AlertDialog.Description>
+			<AlertDialog.Title>{t.deleteTitle(deleting?.name ?? '')}</AlertDialog.Title>
+			<AlertDialog.Description>{t.deleteBody}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={confirmDelete}>Delete folder</AlertDialog.Action>
+			<AlertDialog.Cancel>{t.cancel}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={confirmDelete}>{t.deleteFolder}</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>

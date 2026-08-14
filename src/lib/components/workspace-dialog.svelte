@@ -7,6 +7,88 @@
 	import { workspaces } from '$lib/workspace/store.svelte';
 	import { parseInvite } from '$lib/workspace/keys';
 	import { toBase64Url } from '$lib/share/crypto';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	const DICT: Dict<{
+		createTitle: string;
+		joinTitle: string;
+		createDescription: string;
+		joinDescription: string;
+		linkLabel: string;
+		nameLabel: string;
+		nameHint: string;
+		namePlaceholder: string;
+		passphraseLabel: string;
+		passphrasePlaceholder: string;
+		confirmLabel: string;
+		warning: string;
+		cancel: string;
+		create: string;
+		join: string;
+		busy: string;
+		errRequired: string;
+		errShort: (min: number) => string;
+		errMismatch: string;
+		errBadLink: string;
+		errGeneric: string;
+	}> = {
+		en: {
+			createTitle: 'New workspace',
+			joinTitle: 'Join a workspace',
+			createDescription:
+				'A shared note list. Members connect directly to each other — nothing is stored on a server, so there is no workspace to find without the passphrase.',
+			joinDescription:
+				'You need both the invite link and the passphrase. The link on its own identifies nothing.',
+			linkLabel: 'Invite link',
+			nameLabel: 'Name',
+			nameHint: 'Shown only to you and other members.',
+			namePlaceholder: 'Design team',
+			passphraseLabel: 'Passphrase',
+			passphrasePlaceholder: 'Four or five unrelated words',
+			confirmLabel: 'Confirm passphrase',
+			warning:
+				'Everyone with the passphrase can edit every note here, and it cannot be reset — if you lose it, the workspace is unreachable. Write it down.',
+			cancel: 'Cancel',
+			create: 'Create workspace',
+			join: 'Join',
+			busy: 'Unlocking…',
+			errRequired: 'A passphrase is required.',
+			errShort: (min) =>
+				`Use at least ${min} characters — four or five unrelated words works well.`,
+			errMismatch: 'The two passphrases do not match.',
+			errBadLink: 'That does not look like an invite link.',
+			errGeneric: 'Could not open the workspace.'
+		},
+		id: {
+			createTitle: 'Ruang kerja baru',
+			joinTitle: 'Gabung ke ruang kerja',
+			createDescription:
+				'Daftar catatan bersama. Anggota terhubung langsung satu sama lain — tidak ada yang disimpan di server, jadi tidak ada ruang kerja yang bisa ditemukan tanpa frasa sandi.',
+			joinDescription:
+				'Anda perlu tautan undangan sekaligus frasa sandinya. Tautan saja tidak menunjukkan apa pun.',
+			linkLabel: 'Tautan undangan',
+			nameLabel: 'Nama',
+			nameHint: 'Hanya terlihat oleh Anda dan anggota lain.',
+			namePlaceholder: 'Tim desain',
+			passphraseLabel: 'Frasa sandi',
+			passphrasePlaceholder: 'Empat atau lima kata yang tidak berkaitan',
+			confirmLabel: 'Konfirmasi frasa sandi',
+			warning:
+				'Semua orang yang punya frasa sandi bisa menyunting setiap catatan di sini, dan frasa itu tidak bisa disetel ulang — jika Anda lupa, ruang kerjanya tidak bisa dijangkau lagi. Catatlah.',
+			cancel: 'Batal',
+			create: 'Buat ruang kerja',
+			join: 'Gabung',
+			busy: 'Membuka…',
+			errRequired: 'Frasa sandi wajib diisi.',
+			errShort: (min) =>
+				`Gunakan minimal ${min} karakter — empat atau lima kata yang tidak berkaitan sudah bagus.`,
+			errMismatch: 'Kedua frasa sandi tidak sama.',
+			errBadLink: 'Itu sepertinya bukan tautan undangan.',
+			errGeneric: 'Ruang kerja tidak bisa dibuka.'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	type Props = {
 		open: boolean;
@@ -62,7 +144,7 @@
 		event.preventDefault();
 		error = '';
 		if (!passphrase.trim()) {
-			error = 'A passphrase is required.';
+			error = t.errRequired;
 			return;
 		}
 		// Enforced on create only — joining must accept whatever the workspace was
@@ -70,15 +152,15 @@
 		// phrase: a guess can be tested by deriving it and looking for members, so
 		// a short passphrase is guessable online rather than merely weak.
 		if (mode === 'create' && passphrase.trim().length < MIN_PASSPHRASE) {
-			error = `Use at least ${MIN_PASSPHRASE} characters — four or five unrelated words works well.`;
+			error = t.errShort(MIN_PASSPHRASE);
 			return;
 		}
 		if (mode === 'create' && passphrase !== confirmPhrase) {
-			error = 'The two passphrases do not match.';
+			error = t.errMismatch;
 			return;
 		}
 		if (mode === 'join' && !parsed) {
-			error = 'That does not look like an invite link.';
+			error = t.errBadLink;
 			return;
 		}
 		busy = true;
@@ -91,7 +173,7 @@
 			open = false;
 			reset();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Could not open the workspace.';
+			error = e instanceof Error ? e.message : t.errGeneric;
 			busy = false;
 		}
 	}
@@ -107,23 +189,17 @@
 		<form onsubmit={submit}>
 			<Dialog.Header>
 				<Dialog.Title>
-					{mode === 'create' ? 'New workspace' : 'Join a workspace'}
+					{mode === 'create' ? t.createTitle : t.joinTitle}
 				</Dialog.Title>
 				<Dialog.Description>
-					{#if mode === 'create'}
-						A shared note list. Members connect directly to each other — nothing is stored on a
-						server, so there is no workspace to find without the passphrase.
-					{:else}
-						You need both the invite link and the passphrase. The link on its own identifies
-						nothing.
-					{/if}
+					{mode === 'create' ? t.createDescription : t.joinDescription}
 				</Dialog.Description>
 			</Dialog.Header>
 
 			<div class="grid gap-4 py-4">
 				{#if mode === 'join'}
 					<div class="grid gap-2">
-						<label for="ws-link" class={labelClass}>Invite link</label>
+						<label for="ws-link" class={labelClass}>{t.linkLabel}</label>
 						<Input
 							id="ws-link"
 							bind:value={link}
@@ -135,31 +211,31 @@
 				{/if}
 
 				<div class="grid gap-2">
-					<label for="ws-name" class={labelClass}>Name</label>
+					<label for="ws-name" class={labelClass}>{t.nameLabel}</label>
 					<Input
 						id="ws-name"
 						bind:value={name}
-						placeholder="Design team"
+						placeholder={t.namePlaceholder}
 						autocomplete="off"
 						maxlength={60}
 					/>
-					<p class="text-xs text-muted-foreground">Shown only to you and other members.</p>
+					<p class="text-xs text-muted-foreground">{t.nameHint}</p>
 				</div>
 
 				<div class="grid gap-2">
-					<label for="ws-phrase" class={labelClass}>Passphrase</label>
+					<label for="ws-phrase" class={labelClass}>{t.passphraseLabel}</label>
 					<Input
 						id="ws-phrase"
 						type="password"
 						bind:value={passphrase}
 						autocomplete="off"
-						placeholder="Four or five unrelated words"
+						placeholder={t.passphrasePlaceholder}
 					/>
 				</div>
 
 				{#if mode === 'create'}
 					<div class="grid gap-2">
-						<label for="ws-confirm" class={labelClass}>Confirm passphrase</label>
+						<label for="ws-confirm" class={labelClass}>{t.confirmLabel}</label>
 						<Input id="ws-confirm" type="password" bind:value={confirmPhrase} autocomplete="off" />
 					</div>
 					<!--
@@ -175,10 +251,7 @@
 							strokeWidth={2}
 							class="size-4 shrink-0 text-amber-600 dark:text-amber-400"
 						/>
-						<span>
-							Everyone with the passphrase can edit every note here, and it cannot be reset — if you
-							lose it, the workspace is unreachable. Write it down.
-						</span>
+						<span>{t.warning}</span>
 					</p>
 				{/if}
 
@@ -188,12 +261,12 @@
 			</div>
 
 			<Dialog.Footer>
-				<Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button>
+				<Button type="button" variant="outline" onclick={() => (open = false)}>{t.cancel}</Button>
 				<Button type="submit" disabled={busy}>
 					{#if busy}
-						Unlocking…
+						{t.busy}
 					{:else}
-						{mode === 'create' ? 'Create workspace' : 'Join'}
+						{mode === 'create' ? t.create : t.join}
 					{/if}
 				</Button>
 			</Dialog.Footer>

@@ -38,12 +38,22 @@ export function recordingSupported(): boolean {
 
 export type VoiceClip = { src: string; duration: string; transcript: string; bytes: number };
 
+/** Why recording could not start or finish. The UI turns this into copy. */
+export type RecorderErrorCode =
+	'no-recorder' | 'mic-blocked' | 'no-format' | 'too-large' | 'not-saved';
+
 export class VoiceRecorder {
 	recording = $state(false);
 	seconds = $state(0);
 	/** Live transcript, so there is feedback while speaking. */
 	transcript = $state('');
-	error = $state<string | null>(null);
+	/**
+	 * A code, not a sentence — this module has no idea what language the
+	 * interface is in, and the component that shows the toast does.
+	 */
+	error = $state<RecorderErrorCode | null>(null);
+	/** Sizes for the `too-large` message, already formatted for display. */
+	errorDetail = $state<{ size: string; limit: string } | null>(null);
 
 	#recorder: MediaRecorder | null = null;
 	#stream: MediaStream | null = null;
@@ -55,14 +65,14 @@ export class VoiceRecorder {
 		if (this.recording) return false;
 		const mimeType = pickMimeType();
 		if (!mimeType) {
-			this.error = "This browser can't record audio.";
+			this.error = 'no-recorder';
 			return false;
 		}
 
 		try {
 			this.#stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 		} catch {
-			this.error = 'Microphone access was blocked. Allow it in your browser settings.';
+			this.error = 'mic-blocked';
 			return false;
 		}
 
@@ -73,7 +83,7 @@ export class VoiceRecorder {
 			});
 		} catch {
 			this.#teardown();
-			this.error = "This browser can't record in a supported format.";
+			this.error = 'no-format';
 			return false;
 		}
 
@@ -86,6 +96,7 @@ export class VoiceRecorder {
 		this.seconds = 0;
 		this.transcript = '';
 		this.error = null;
+		this.errorDetail = null;
 		this.recording = true;
 		this.#tick = setInterval(() => {
 			this.seconds += 1;
@@ -121,7 +132,8 @@ export class VoiceRecorder {
 		this.#teardown();
 
 		if (blob.size > MAX_BYTES) {
-			this.error = `That clip is ${formatBytes(blob.size)}; a note can hold ${formatBytes(MAX_BYTES)}.`;
+			this.error = 'too-large';
+			this.errorDetail = { size: formatBytes(blob.size), limit: formatBytes(MAX_BYTES) };
 			return null;
 		}
 

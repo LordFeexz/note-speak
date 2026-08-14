@@ -1,5 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { noteTitle, searchableText, type Folder, type Note, type ShareInfo } from '$lib/types';
+import { locale } from '$lib/i18n/locale.svelte';
+import type { Dict } from '$lib/i18n/dict';
 import { linkedTitles } from '$lib/editor/wikilink';
 
 const NOTES_KEY = 'note-speak:notes';
@@ -34,6 +36,8 @@ type Prefs = {
 	autoPunctuate?: boolean;
 	/** Note list ordering. Pinned notes lead regardless. */
 	sortBy?: SortBy;
+	/** How the note list is drawn. Pinned notes lead in every layout. */
+	listLayout?: ListLayout;
 	/** Anonymous display identity shown to collaborators. Stable across reloads. */
 	identity?: { name: string; color: string };
 	/**
@@ -52,6 +56,39 @@ export const SORT_LABELS: Record<SortBy, string> = {
 	created: 'Date created',
 	title: 'Title'
 };
+
+/**
+ * How the note list is drawn.
+ *
+ * Every layout renders the same `listFor()` result in the same order — they
+ * differ in shape, not in content, which is what keeps a layout switch from
+ * being able to hide a note.
+ *
+ * `board` is the exception in one respect: it groups by folder, so it only means
+ * anything in the All Notes pane. See `note-board.svelte`.
+ */
+export type ListLayout = 'rows' | 'compact' | 'grid' | 'grouped' | 'board';
+
+/** Switcher order. English labels live in the component's dictionary. */
+export const LIST_LAYOUTS: ListLayout[] = ['rows', 'compact', 'grid', 'grouped', 'board'];
+
+/**
+ * The layout actually in force for a given pane.
+ *
+ * The board groups by folder, so it only means anything where every folder is in
+ * scope — All Notes. In Trash or inside a workspace it would render a single
+ * degenerate column, so it degrades to rows. Shared by the list, which draws it,
+ * and the app shell, which widens the pane for it: two places deciding this
+ * separately is two places to disagree.
+ */
+export function effectiveLayout(layout: ListLayout, folderId: string | null | 'trash'): ListLayout {
+	return layout === 'board' && folderId !== null ? 'rows' : layout;
+}
+
+/** Layouts that want more room than the reading-list pane normally gets. */
+export function isWideLayout(layout: ListLayout): boolean {
+	return layout === 'grid' || layout === 'board';
+}
 
 /** How many languages the quick-switch remembers. */
 const RECENT_LANG_LIMIT = 3;
@@ -92,13 +129,25 @@ function uid() {
  * "never sent anywhere", which is true of typed text and false of dictation:
  * Chrome and Safari transcribe by streaming audio to Google and Apple. Saying so
  * plainly is both accurate and better positioning than being found out.
+ *
+ * Seeded once, in whatever language is current on first launch. It is an
+ * ordinary note afterwards — editable, deletable, and never rewritten if the
+ * interface language changes later.
  */
-const WELCOME_BODY = `Welcome to Note Speak
+const WELCOME_BODY: Dict<string> = {
+	en: `Welcome to Note Speak
 Your notes are saved to this browser's own storage. We have no server and no account, so typed notes are never sent anywhere.
 
 Tap the microphone to dictate instead of typing. One thing worth knowing: dictation uses your browser's speech recognition, and in Chrome and Safari that sends the audio to Google or Apple to be transcribed — never to us.
 
-Press ⌘N for a new note and ⌘⇧D to start dictating.`;
+Press ⌘N for a new note and ⌘⇧D to start dictating.`,
+	id: `Selamat datang di Note Speak
+Catatan Anda disimpan di penyimpanan browser ini sendiri. Kami tidak punya server dan tidak punya akun, jadi catatan yang Anda ketik tidak dikirim ke mana pun.
+
+Ketuk mikrofon untuk mendikte alih-alih mengetik. Satu hal yang perlu diketahui: dikte memakai pengenalan suara bawaan browser Anda, dan di Chrome serta Safari itu mengirim audionya ke Google atau Apple untuk ditranskripsikan — tidak pernah ke kami.
+
+Tekan ⌘N untuk catatan baru dan ⌘⇧D untuk mulai mendikte.`
+};
 
 /**
  * Single source of truth for notes, folders and preferences.
@@ -131,6 +180,10 @@ class NotesStore {
 
 	async load() {
 		if (this.loaded) return;
+		// Before anything else: the welcome note below is seeded once, in whatever
+		// language is current at that moment. `onMount` fires child-first, so a
+		// layout could not guarantee this ordering — doing it here can.
+		await locale.load();
 		const [notes, folders, prefs, schema] = await Promise.all([
 			get<Note[]>(NOTES_KEY),
 			get<Folder[]>(FOLDERS_KEY),
@@ -153,7 +206,7 @@ class NotesStore {
 				{
 					id: uid(),
 					folderId: null,
-					body: WELCOME_BODY,
+					body: WELCOME_BODY[locale.current],
 					createdAt: now,
 					updatedAt: now,
 					deletedAt: null,
@@ -441,10 +494,17 @@ class NotesStore {
 		// Pinned notes lead, most recently pinned first; the rest by the chosen order.
 		const sortBy = this.prefs.sortBy ?? 'updated';
 		return [...filtered].sort((a, b) => {
-			if (a.pinnedAt !== b.pinnedAt) {
-				if (a.pinnedAt === null) return 1;
-				if (b.pinnedAt === null) return -1;
-				return b.pinnedAt - a.pinnedAt;
+			// Compare *pinnedness*, not the timestamps. Guarding on `a.pinnedAt !==
+			// b.pinnedAt` meant two pinned notes — which almost never share a
+			// millisecond — always took the pin branch and never reached the chosen
+			// sort, so "Sort by Title" quietly left the pinned notes unsorted.
+			const aPinned = a.pinnedAt !== null;
+			const bPinned = b.pinnedAt !== null;
+			if (aPinned !== bPinned) return aPinned ? -1 : 1;
+			if (aPinned && bPinned && sortBy === 'updated') {
+				// Within the pins, most recently pinned first — the original intent,
+				// now only where it does not override an explicit sort choice.
+				return b.pinnedAt! - a.pinnedAt!;
 			}
 			if (sortBy === 'created') return b.createdAt - a.createdAt;
 			if (sortBy === 'title') {

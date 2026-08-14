@@ -12,13 +12,39 @@
 	import NoteList from '$lib/components/note-list.svelte';
 	import NoteEditor from '$lib/components/note-editor.svelte';
 	import ShortcutsDialog from '$lib/components/shortcuts-dialog.svelte';
-	import { notes, WORKSPACE_PREFIX } from '$lib/stores/notes.svelte';
+	import { notes, effectiveLayout, isWideLayout, WORKSPACE_PREFIX } from '$lib/stores/notes.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
 	import { speech } from '$lib/stores/speech.svelte';
 	import { isCompact, dur } from '$lib/motion.svelte';
 	import { trackViewportHeight } from '$lib/viewport.svelte';
 	import { history } from '$lib/history/store.svelte';
 	import type { Note } from '$lib/types';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	const DICT: Dict<{
+		readyTitle: string;
+		readyBody: string;
+		dictate: string;
+		movedToTrash: string;
+		undo: string;
+	}> = {
+		en: {
+			readyTitle: 'Ready when you are',
+			readyBody: 'Tap to start dictating this note.',
+			dictate: 'Dictate',
+			movedToTrash: 'Note moved to Trash',
+			undo: 'Undo'
+		},
+		id: {
+			readyTitle: 'Siap kapan pun Anda mau',
+			readyBody: 'Ketuk untuk mulai mendikte catatan ini.',
+			dictate: 'Dikte',
+			movedToTrash: 'Catatan dipindahkan ke Sampah',
+			undo: 'Urungkan'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	let folderId = $state<string | null | 'trash'>(null);
 	let noteId = $state<string | null>(null);
@@ -32,6 +58,33 @@
 
 	const compact = $derived(isCompact.current);
 	const note = $derived(notes.getNote(noteId));
+
+	/**
+	 * Grid and board need more room than a reading list does.
+	 *
+	 * Done purely by giving those layouts a different set of pane constraints,
+	 * with no imperative resizing at all — because paneforge already stores one
+	 * layout *per constraint tuple*: `getPaneKey()` in
+	 * `paneforge/dist/internal/utils/storage.js` serialises every pane's
+	 * constraints into the storage key. So each width bucket remembers its own
+	 * divider positions for free, and dragging the divider in grid does not
+	 * disturb the width you chose for rows.
+	 *
+	 * The narrow numbers are byte-identical to what shipped before, which is what
+	 * keeps every existing saved layout working untouched.
+	 *
+	 * Two things this must not do. It must not remount the pane group — that would
+	 * rebuild the editor, and `note-editor.svelte` keeps ProseMirror alive across
+	 * note switches so undo history survives; a shared note would also drop its
+	 * peer connections. And each bucket's `defaultSize`s must total 100, or
+	 * `validatePaneGroupLayout` rescales them all proportionally.
+	 */
+	const wide = $derived(isWideLayout(effectiveLayout(notes.prefs.listLayout ?? 'rows', folderId)));
+	const panes = $derived(
+		wide
+			? { list: { size: 44, min: 30, max: 58 }, editor: 40 }
+			: { list: { size: 26, min: 18, max: 40 }, editor: 58 }
+	);
 
 	onMount(() => {
 		void notes.load().then(() => {
@@ -171,11 +224,11 @@
 
 		setTimeout(() => {
 			if (speech.listening) return;
-			toast('Ready when you are', {
-				description: 'Tap to start dictating this note.',
+			toast(t.readyTitle, {
+				description: t.readyBody,
 				duration: 12_000,
 				// A toast action *is* a user gesture, so this path always works.
-				action: { label: 'Dictate', onClick: () => editor?.toggleDictation() }
+				action: { label: t.dictate, onClick: () => editor?.toggleDictation() }
 			});
 		}, 600);
 	}
@@ -187,8 +240,8 @@
 			noteId = compact ? null : (notes.listFor(folderId)[0]?.id ?? null);
 			if (compact) view = 'list';
 		}
-		toast('Note moved to Trash', {
-			action: { label: 'Undo', onClick: () => notes.restoreNote(target.id) }
+		toast(t.movedToTrash, {
+			action: { label: t.undo, onClick: () => notes.restoreNote(target.id) }
 		});
 	}
 
@@ -292,7 +345,12 @@
 				/>
 			</Resizable.Pane>
 			<Resizable.Handle />
-			<Resizable.Pane defaultSize={26} minSize={18} maxSize={40} class="min-w-0">
+			<Resizable.Pane
+				defaultSize={panes.list.size}
+				minSize={panes.list.min}
+				maxSize={panes.list.max}
+				class="min-w-0"
+			>
 				<NoteList
 					{folderId}
 					selectedId={noteId}
@@ -304,7 +362,7 @@
 				/>
 			</Resizable.Pane>
 			<Resizable.Handle />
-			<Resizable.Pane defaultSize={58} minSize={30} class="min-w-0">
+			<Resizable.Pane defaultSize={panes.editor} minSize={30} class="min-w-0">
 				<NoteEditor
 					bind:this={editor}
 					{note}

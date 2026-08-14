@@ -6,29 +6,167 @@
 	import NoteAddIcon from '@hugeicons/core-free-icons/NoteAddIcon';
 	import Note01Icon from '@hugeicons/core-free-icons/Note01Icon';
 	import Delete02Icon from '@hugeicons/core-free-icons/Delete02Icon';
-	import DeletePutBackIcon from '@hugeicons/core-free-icons/DeletePutBackIcon';
-	import MoreHorizontalIcon from '@hugeicons/core-free-icons/MoreHorizontalIcon';
 	import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon';
-	import Folder01Icon from '@hugeicons/core-free-icons/Folder01Icon';
 	import Menu01Icon from '@hugeicons/core-free-icons/Menu01Icon';
 	import ArrowUpDownIcon from '@hugeicons/core-free-icons/ArrowUpDownIcon';
-	import Download04Icon from '@hugeicons/core-free-icons/Download04Icon';
-	import PinIcon from '@hugeicons/core-free-icons/PinIcon';
-	import PinOffIcon from '@hugeicons/core-free-icons/PinOffIcon';
+	import ListViewIcon from '@hugeicons/core-free-icons/ListViewIcon';
+	import Menu02Icon from '@hugeicons/core-free-icons/Menu02Icon';
+	import GridViewIcon from '@hugeicons/core-free-icons/GridViewIcon';
+	import Calendar03Icon from '@hugeicons/core-free-icons/Calendar03Icon';
+	import KanbanIcon from '@hugeicons/core-free-icons/KanbanIcon';
 	import UserGroupIcon from '@hugeicons/core-free-icons/UserGroupIcon';
 
-	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Empty from '$lib/components/ui/empty';
-	import { notes, SORT_LABELS, WORKSPACE_PREFIX, type SortBy } from '$lib/stores/notes.svelte';
+	import {
+		notes,
+		effectiveLayout,
+		LIST_LAYOUTS,
+		SORT_LABELS,
+		WORKSPACE_PREFIX,
+		type ListLayout,
+		type SortBy
+	} from '$lib/stores/notes.svelte';
+	import NoteCard from './note-card.svelte';
+	import NoteBoard from './note-board.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
-	import { exportNoteMarkdown } from '$lib/data/transfer';
-	import { noteTitle, notePreview, type Note } from '$lib/types';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	import { noteTitle, type Note } from '$lib/types';
 	import { dur } from '$lib/motion.svelte';
+
+	const DICT: Dict<{
+		trash: string;
+		allNotes: string;
+		notes: string;
+		showFolders: string;
+		empty: string;
+		sortBy: (label: string) => string;
+		sortGroup: string;
+		sortLabels: Record<SortBy, string>;
+		newNote: string;
+		searchPlaceholder: string;
+		searchLabel: string;
+		clearSearch: string;
+		noMatches: string;
+		trashEmpty: string;
+		nothingHere: string;
+		noNotes: string;
+		noMatchesFor: (q: string) => string;
+		trashHint: string;
+		workspaceEmpty: string;
+		workspaceOffline: string;
+		startTyping: string;
+		emptyTrashTitle: string;
+		emptyTrashBody: (n: number) => string;
+		cancel: string;
+		emptyTrashAction: string;
+		layoutGroup: string;
+		layoutBy: (label: string) => string;
+		layoutLabels: Record<ListLayout, string>;
+		pinnedGroup: string;
+		today: string;
+		yesterday: string;
+		last7: string;
+		last30: string;
+		older: string;
+	}> = {
+		en: {
+			trash: 'Trash',
+			allNotes: 'All Notes',
+			notes: 'Notes',
+			showFolders: 'Show folders',
+			empty: 'Empty',
+			sortBy: (label) => `Sort notes by ${label}`,
+			sortGroup: 'Sort by',
+			sortLabels: { updated: 'Date edited', created: 'Date created', title: 'Title' },
+			newNote: 'New note',
+			searchPlaceholder: 'Search',
+			searchLabel: 'Search notes',
+			clearSearch: 'Clear search',
+			noMatches: 'No matches',
+			trashEmpty: 'Trash is empty',
+			nothingHere: 'Nothing here yet',
+			noNotes: 'No notes yet',
+			noMatchesFor: (q) => `Nothing here matches “${q}”.`,
+			trashHint: 'Deleted notes land here so you can restore them.',
+			workspaceEmpty: 'This workspace is empty. Add a note, and every member gets it.',
+			workspaceOffline:
+				'Nobody else is here yet. Either no member is online right now, or the passphrase does not match theirs — from this side the two look identical, because there is no server that could tell them apart. Notes you have opened before stay available offline.',
+			startTyping: 'Start typing, or dictate one with your voice.',
+			emptyTrashTitle: 'Empty Trash?',
+			emptyTrashBody: (n) =>
+				`${n} note${n === 1 ? '' : 's'} will be deleted from this device permanently. This can't be undone.`,
+			cancel: 'Cancel',
+			emptyTrashAction: 'Empty Trash',
+			layoutGroup: 'Layout',
+			layoutBy: (label) => `Note layout: ${label}`,
+			layoutLabels: {
+				rows: 'Rows',
+				compact: 'Compact',
+				grid: 'Grid',
+				grouped: 'Grouped',
+				board: 'Board'
+			},
+			pinnedGroup: 'Pinned',
+			today: 'Today',
+			yesterday: 'Yesterday',
+			last7: 'Previous 7 days',
+			last30: 'Previous 30 days',
+			older: 'Older'
+		},
+		id: {
+			trash: 'Sampah',
+			allNotes: 'Semua Catatan',
+			notes: 'Catatan',
+			showFolders: 'Tampilkan folder',
+			empty: 'Kosongkan',
+			sortBy: (label) => `Urutkan catatan menurut ${label}`,
+			sortGroup: 'Urutkan menurut',
+			sortLabels: { updated: 'Tanggal disunting', created: 'Tanggal dibuat', title: 'Judul' },
+			newNote: 'Catatan baru',
+			searchPlaceholder: 'Cari',
+			searchLabel: 'Cari catatan',
+			clearSearch: 'Bersihkan pencarian',
+			noMatches: 'Tidak ada yang cocok',
+			trashEmpty: 'Sampah kosong',
+			nothingHere: 'Belum ada apa-apa di sini',
+			noNotes: 'Belum ada catatan',
+			noMatchesFor: (q) => `Tidak ada yang cocok dengan “${q}”.`,
+			trashHint: 'Catatan yang dihapus mendarat di sini supaya bisa Anda pulihkan.',
+			workspaceEmpty:
+				'Ruang kerja ini masih kosong. Tambahkan catatan, dan semua anggota akan menerimanya.',
+			workspaceOffline:
+				'Belum ada orang lain di sini. Entah tidak ada anggota yang sedang online, atau frasa sandinya tidak sama dengan milik mereka — dari sisi ini keduanya terlihat identik, karena tidak ada server yang bisa membedakannya. Catatan yang pernah Anda buka tetap tersedia offline.',
+			startTyping: 'Mulai mengetik, atau diktekan dengan suara Anda.',
+			emptyTrashTitle: 'Kosongkan Sampah?',
+			emptyTrashBody: (n) =>
+				`${n} catatan akan dihapus permanen dari perangkat ini. Ini tidak bisa dibatalkan.`,
+			cancel: 'Batal',
+			emptyTrashAction: 'Kosongkan Sampah',
+			layoutGroup: 'Tata letak',
+			layoutBy: (label) => `Tata letak catatan: ${label}`,
+			layoutLabels: {
+				rows: 'Baris',
+				compact: 'Ringkas',
+				grid: 'Kisi',
+				grouped: 'Dikelompokkan',
+				board: 'Papan'
+			},
+			pinnedGroup: 'Disematkan',
+			today: 'Hari ini',
+			yesterday: 'Kemarin',
+			last7: '7 hari terakhir',
+			last30: '30 hari terakhir',
+			older: 'Lebih lama'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	type Props = {
 		folderId: string | null | 'trash';
@@ -62,53 +200,97 @@
 	const workspace = $derived(workspaceId ? workspaces.get(workspaceId) : undefined);
 	const heading = $derived(
 		folderId === 'trash'
-			? 'Trash'
+			? t.trash
 			: folderId === null
-				? 'All Notes'
-				: (workspace?.name ?? notes.folders.find((f) => f.id === folderId)?.name ?? 'Notes')
+				? t.allNotes
+				: (workspace?.name ?? notes.folders.find((f) => f.id === folderId)?.name ?? t.notes)
 	);
 
-	function formatDate(ts: number) {
-		const date = new Date(ts);
-		const now = new Date();
-		const sameDay = date.toDateString() === now.toDateString();
-		if (sameDay) return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-		if (date.getFullYear() === now.getFullYear())
-			return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-		return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+	const layout = $derived(notes.prefs.listLayout ?? 'rows');
+	const effective = $derived(effectiveLayout(layout, folderId));
+	// The board is not offered where it would render one degenerate column.
+	const boardAllowed = $derived(folderId === null);
+	const layouts = $derived(LIST_LAYOUTS.filter((value) => value !== 'board' || boardAllowed));
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- hugeicons ships no icon type
+	const LAYOUT_ICONS: Record<ListLayout, any> = {
+		rows: ListViewIcon,
+		compact: Menu02Icon,
+		grid: GridViewIcon,
+		grouped: Calendar03Icon,
+		board: KanbanIcon
+	};
+
+	/** The one thing that differs per layout: how the single `<ul>` flows. */
+	const listClass = $derived(
+		effective === 'grid'
+			? 'grid gap-2 px-2 pb-3 [grid-template-columns:repeat(auto-fill,minmax(11rem,1fr))]'
+			: 'flex flex-col gap-0.5 px-2 pb-3'
+	);
+
+	const DAY = 24 * 60 * 60 * 1000;
+
+	/**
+	 * Bucket a note for the grouped layout.
+	 *
+	 * Grouping follows whatever the list is *sorted* by, so the headings can never
+	 * disagree with the order underneath them: date buckets when sorting by a
+	 * date, and the first letter when sorting by title. Pinned notes get their own
+	 * leading group, which is exactly what the pins-first rule already produces.
+	 */
+	function groupOf(note: Note, midnight: number): string {
+		if (note.pinnedAt !== null) return t.pinnedGroup;
+		const sortBy = notes.prefs.sortBy ?? 'updated';
+		if (sortBy === 'title') return (noteTitle(note, t.notes)[0] ?? '').toUpperCase();
+
+		const at = sortBy === 'created' ? note.createdAt : note.updatedAt;
+		if (at >= midnight) return t.today;
+		if (at >= midnight - DAY) return t.yesterday;
+		if (at >= midnight - 7 * DAY) return t.last7;
+		if (at >= midnight - 30 * DAY) return t.last30;
+		return t.older;
 	}
 
-	async function addToWorkspace(id: string, note: Note) {
-		const ok = await workspaces.addNote(id, note);
-		if (!ok) {
-			toast('That workspace is still connecting. Try again in a moment.');
-			return;
+	/**
+	 * The list with a header row before each change of group.
+	 *
+	 * Built as one flat array rather than nested lists so a single `<ul>` still
+	 * holds every note — which is what keeps `animate:flip` working across a
+	 * layout change instead of tearing every row down and rebuilding it.
+	 */
+	const rendered = $derived.by(() => {
+		if (effective !== 'grouped') return list.map((note) => ({ kind: 'note' as const, note }));
+		const out: ({ kind: 'note'; note: Note } | { kind: 'header'; label: string })[] = [];
+		// Today's boundary, computed once rather than per note. Constructed rather
+		// than mutated with `setHours`, which would make it a mutable Date.
+		const today = new Date();
+		const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+		let current: string | null = null;
+		for (const note of list) {
+			const group = groupOf(note, midnight);
+			if (group !== current) {
+				out.push({ kind: 'header', label: group });
+				current = group;
+			}
+			out.push({ kind: 'note', note });
 		}
-		toast(`Added to ${workspaces.get(id)?.name ?? 'the workspace'}`, {
-			description: 'Members can now edit this note. It stays on your device too.'
-		});
-	}
-
-	function trash(note: Note) {
-		notes.trashNote(note.id);
-		toast('Note moved to Trash', {
-			action: { label: 'Undo', onClick: () => notes.restoreNote(note.id) }
-		});
-	}
+		return out;
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col glass">
 	<header class="flex flex-col gap-2 px-3 pt-3 safe-t pb-2">
 		<div class="flex items-center gap-1">
 			{#if compact}
-				<Button variant="ghost" size="icon-sm" onclick={onopenfolders} aria-label="Show folders">
+				<Button variant="ghost" size="icon-sm" onclick={onopenfolders} aria-label={t.showFolders}>
 					<HugeiconsIcon icon={Menu01Icon} strokeWidth={2} />
 				</Button>
 			{/if}
 			<h2 class="flex-1 truncate text-sm font-semibold">{heading}</h2>
 			{#if isTrash}
 				{#if list.length > 0}
-					<Button variant="ghost" size="sm" onclick={() => (confirmEmptyTrash = true)}>Empty</Button
+					<Button variant="ghost" size="sm" onclick={() => (confirmEmptyTrash = true)}
+						>{t.empty}</Button
 					>
 				{/if}
 			{:else}
@@ -119,7 +301,7 @@
 								{...props}
 								variant="ghost"
 								size="icon-sm"
-								aria-label="Sort notes by {SORT_LABELS[notes.prefs.sortBy ?? 'updated']}"
+								aria-label={t.sortBy(t.sortLabels[notes.prefs.sortBy ?? 'updated'])}
 							>
 								<HugeiconsIcon icon={ArrowUpDownIcon} strokeWidth={2} />
 							</Button>
@@ -127,19 +309,55 @@
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end">
 						<DropdownMenu.Group>
-							<DropdownMenu.Label>Sort by</DropdownMenu.Label>
-							{#each Object.entries(SORT_LABELS) as [value, label] (value)}
+							<DropdownMenu.Label>{t.sortGroup}</DropdownMenu.Label>
+							{#each Object.keys(SORT_LABELS) as value (value)}
 								<DropdownMenu.CheckboxItem
 									checked={(notes.prefs.sortBy ?? 'updated') === value}
 									onCheckedChange={() => notes.setPref('sortBy', value as SortBy)}
 								>
-									{label}
+									{t.sortLabels[value as SortBy]}
 								</DropdownMenu.CheckboxItem>
 							{/each}
 						</DropdownMenu.Group>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
-				<Button variant="ghost" size="icon-sm" onclick={oncreate} aria-label="New note">
+				<!--
+					A radio group rather than checkboxes: the layout is one choice among
+					several, and `RadioItem` says so to a screen reader. (The sort menu
+					above uses checkboxes, which is the weaker fit but is not worth
+					changing today.)
+				-->
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								aria-label={t.layoutBy(t.layoutLabels[effective])}
+							>
+								<HugeiconsIcon icon={LAYOUT_ICONS[effective]} strokeWidth={2} />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end">
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>{t.layoutGroup}</DropdownMenu.Label>
+							<DropdownMenu.RadioGroup
+								value={effective}
+								onValueChange={(value) => notes.setPref('listLayout', value as ListLayout)}
+							>
+								{#each layouts as value (value)}
+									<DropdownMenu.RadioItem {value}>
+										<HugeiconsIcon icon={LAYOUT_ICONS[value]} strokeWidth={2} />
+										{t.layoutLabels[value]}
+									</DropdownMenu.RadioItem>
+								{/each}
+							</DropdownMenu.RadioGroup>
+						</DropdownMenu.Group>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+				<Button variant="ghost" size="icon-sm" onclick={oncreate} aria-label={t.newNote}>
 					<HugeiconsIcon icon={NoteAddIcon} strokeWidth={2} />
 				</Button>
 			{/if}
@@ -154,8 +372,8 @@
 				bind:ref={searchRef}
 				bind:value={notes.query}
 				type="search"
-				placeholder="Search"
-				aria-label="Search notes"
+				placeholder={t.searchPlaceholder}
+				aria-label={t.searchLabel}
 				class="h-9 pl-8"
 			/>
 			{#if notes.query}
@@ -163,7 +381,7 @@
 					variant="ghost"
 					size="icon-xs"
 					class="absolute top-1/2 right-1.5 -translate-y-1/2"
-					aria-label="Clear search"
+					aria-label={t.clearSearch}
 					onclick={() => (notes.query = '')}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
@@ -172,230 +390,133 @@
 		</div>
 	</header>
 
-	<ScrollArea class="min-h-0 flex-1 scroll-slim">
-		{#if list.length === 0}
-			<div class="p-4" in:fade={{ duration: dur(200) }}>
-				<Empty.Root>
-					<Empty.Header>
-						<Empty.Media variant="icon">
-							<HugeiconsIcon
-								icon={notes.query
-									? Search01Icon
-									: isTrash
-										? Delete02Icon
-										: workspace
-											? UserGroupIcon
-											: Note01Icon}
-								strokeWidth={2}
-							/>
-						</Empty.Media>
-						<Empty.Title>
-							{#if notes.query}
-								No matches
-							{:else if isTrash}
-								Trash is empty
-							{:else if workspace}
-								Nothing here yet
-							{:else}
-								No notes yet
-							{/if}
-						</Empty.Title>
-						<Empty.Description>
-							{#if notes.query}
-								Nothing here matches “{notes.query}”.
-							{:else if isTrash}
-								Deleted notes land here so you can restore them.
-							{:else if workspace}
-								<!--
+	{#if effective === 'board' && list.length > 0}
+		<!--
+			Outside the ScrollArea on purpose: the board scrolls horizontally and its
+			columns scroll vertically, and the ScrollArea viewport is vertical-only
+			with `overflow-x: hidden`. It gets the pane directly.
+		-->
+		<div class="min-h-0 flex-1">
+			<NoteBoard {list} {selectedId} {onselect} />
+		</div>
+	{:else}
+		<ScrollArea class="min-h-0 flex-1 scroll-slim">
+			{#if list.length === 0}
+				<div class="p-4" in:fade={{ duration: dur(200) }}>
+					<Empty.Root>
+						<Empty.Header>
+							<Empty.Media variant="icon">
+								<HugeiconsIcon
+									icon={notes.query
+										? Search01Icon
+										: isTrash
+											? Delete02Icon
+											: workspace
+												? UserGroupIcon
+												: Note01Icon}
+									strokeWidth={2}
+								/>
+							</Empty.Media>
+							<Empty.Title>
+								{#if notes.query}
+									{t.noMatches}
+								{:else if isTrash}
+									{t.trashEmpty}
+								{:else if workspace}
+									{t.nothingHere}
+								{:else}
+									{t.noNotes}
+								{/if}
+							</Empty.Title>
+							<Empty.Description>
+								{#if notes.query}
+									{t.noMatchesFor(notes.query)}
+								{:else if isTrash}
+									{t.trashHint}
+								{:else if workspace}
+									<!--
 									Two genuinely different situations that look identical from here,
 									and neither can be ruled out without a server: an empty
 									workspace, and one whose members are all offline. Saying both is
 									the only accurate option.
 								-->
-								{#if workspaces.status[workspace.id] === 'connected'}
-									This workspace is empty. Add a note, and every member gets it.
-								{:else}
-									Nobody else is here yet. Either no member is online right now, or the passphrase
-									does not match theirs — from this side the two look identical, because there is no
-									server that could tell them apart. Notes you have opened before stay available
-									offline.
-								{/if}
-							{:else}
-								Start typing, or dictate one with your voice.
-							{/if}
-						</Empty.Description>
-					</Empty.Header>
-					{#if !isTrash}
-						<Empty.Content>
-							<Button
-								size="sm"
-								onclick={() => {
-									notes.query = '';
-									oncreate();
-								}}
-							>
-								<HugeiconsIcon icon={NoteAddIcon} strokeWidth={2} data-icon="inline-start" />
-								New note
-							</Button>
-						</Empty.Content>
-					{/if}
-				</Empty.Root>
-			</div>
-		{:else}
-			<ul class="flex flex-col gap-0.5 px-2 pb-3">
-				{#each list as note (note.id)}
-					<li animate:flip={{ duration: dur(180) }} class="group/note relative">
-						<button
-							type="button"
-							class="flex min-h-11 w-full cursor-pointer flex-col items-start gap-0.5 rounded-md px-2.5 py-2 pr-9 text-left transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none
-								{note.id === selectedId ? 'bg-note-accent text-note-accent-foreground hover:bg-note-accent' : ''}"
-							aria-current={note.id === selectedId ? 'true' : undefined}
-							onclick={() => onselect(note.id)}
-						>
-							<span class="flex w-full items-center gap-1.5">
-								{#if note.pinnedAt !== null}
-									<HugeiconsIcon
-										icon={PinIcon}
-										strokeWidth={2}
-										class="size-3 shrink-0 {note.id === selectedId
-											? 'text-note-accent-foreground/80'
-											: 'text-muted-foreground'}"
-										aria-label="Pinned"
-									/>
-								{/if}
-								<span class="truncate text-sm font-medium">{noteTitle(note)}</span>
-							</span>
-							<span
-								class="flex w-full items-baseline gap-1.5 text-xs {note.id === selectedId
-									? 'text-note-accent-foreground/75'
-									: 'text-muted-foreground'}"
-							>
-								<span class="shrink-0 tabular-nums">{formatDate(note.updatedAt)}</span>
-								<span class="truncate">{notePreview(note)}</span>
-							</span>
-						</button>
-
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="ghost"
-										size="icon-sm"
-										class="absolute top-1.5 right-1 opacity-0 group-hover/note:opacity-100 focus-visible:opacity-100 max-md:opacity-100 {note.id ===
-										selectedId
-											? 'text-note-accent-foreground hover:bg-black/15 hover:text-note-accent-foreground'
-											: ''}"
-										aria-label="Options for {noteTitle(note)}"
-									>
-										<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-									</Button>
-								{/snippet}
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Content align="end">
-								{#if isTrash}
-									<DropdownMenu.Group>
-										<DropdownMenu.Item onSelect={() => notes.restoreNote(note.id)}>
-											<HugeiconsIcon icon={DeletePutBackIcon} strokeWidth={2} />
-											Restore
-										</DropdownMenu.Item>
-										<DropdownMenu.Item
-											variant="destructive"
-											onSelect={() => notes.purgeNote(note.id)}
-										>
-											<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-											Delete permanently
-										</DropdownMenu.Item>
-									</DropdownMenu.Group>
-								{:else}
-									<DropdownMenu.Group>
-										<DropdownMenu.Label>Move to</DropdownMenu.Label>
-										<DropdownMenu.Item
-											disabled={note.folderId === null}
-											onSelect={() => notes.moveNote(note.id, null)}
-										>
-											<HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
-											All Notes
-										</DropdownMenu.Item>
-										{#each notes.folders as folder (folder.id)}
-											<DropdownMenu.Item
-												disabled={note.folderId === folder.id}
-												onSelect={() => notes.moveNote(note.id, folder.id)}
-											>
-												<HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />
-												{folder.name}
-											</DropdownMenu.Item>
-										{/each}
-									</DropdownMenu.Group>
-									{#if workspaces.workspaces.length > 0}
-										<DropdownMenu.Separator />
-										<DropdownMenu.Group>
-											<DropdownMenu.Label>Workspace</DropdownMenu.Label>
-											{#each workspaces.workspaces as workspace (workspace.id)}
-												{#if note.workspaceId === workspace.id}
-													<DropdownMenu.Item
-														onSelect={() =>
-															note.share && workspaces.removeNote(workspace.id, note.share.docId)}
-													>
-														<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-														Remove from {workspace.name}
-													</DropdownMenu.Item>
-												{:else}
-													<DropdownMenu.Item
-														disabled={!!note.workspaceId}
-														onSelect={() => addToWorkspace(workspace.id, note)}
-													>
-														<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-														Add to {workspace.name}
-													</DropdownMenu.Item>
-												{/if}
-											{/each}
-										</DropdownMenu.Group>
+									{#if workspaces.status[workspace.id] === 'connected'}
+										{t.workspaceEmpty}
+									{:else}
+										{t.workspaceOffline}
 									{/if}
-									<DropdownMenu.Separator />
-									<DropdownMenu.Group>
-										<DropdownMenu.Item onSelect={() => notes.togglePin(note.id)}>
-											<HugeiconsIcon
-												icon={note.pinnedAt === null ? PinIcon : PinOffIcon}
-												strokeWidth={2}
-											/>
-											{note.pinnedAt === null ? 'Pin to top' : 'Unpin'}
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onSelect={() => exportNoteMarkdown(note)}>
-											<HugeiconsIcon icon={Download04Icon} strokeWidth={2} />
-											Export as Markdown
-										</DropdownMenu.Item>
-										<DropdownMenu.Item variant="destructive" onSelect={() => trash(note)}>
-											<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-											Move to Trash
-										</DropdownMenu.Item>
-									</DropdownMenu.Group>
+								{:else}
+									{t.startTyping}
 								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Root>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</ScrollArea>
+							</Empty.Description>
+						</Empty.Header>
+						{#if !isTrash}
+							<Empty.Content>
+								<Button
+									size="sm"
+									onclick={() => {
+										notes.query = '';
+										oncreate();
+									}}
+								>
+									<HugeiconsIcon icon={NoteAddIcon} strokeWidth={2} data-icon="inline-start" />
+									{t.newNote}
+								</Button>
+							</Empty.Content>
+						{/if}
+					</Empty.Root>
+				</div>
+			{:else}
+				<!--
+					One `<ul>` for every layout, with only its class swapped. Branching the
+					container inside `{#if}` would destroy and recreate every keyed item on
+					a layout change, which kills the FLIP animation that makes reordering
+					readable.
+				-->
+				<ul class={listClass}>
+					<!--
+						`animate:flip` has to sit on the only child of the keyed block, so the
+						header/note branch lives inside the `<li>` rather than around it.
+					-->
+					{#each rendered as entry (entry.kind === 'note' ? entry.note.id : `header:${entry.label}`)}
+						<li
+							animate:flip={{ duration: dur(180) }}
+							class={entry.kind === 'header'
+								? 'col-span-full px-2.5 pt-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase'
+								: ''}
+						>
+							{#if entry.kind === 'header'}
+								{entry.label}
+							{:else}
+								<NoteCard
+									note={entry.note}
+									selected={entry.note.id === selectedId}
+									layout={effective}
+									{isTrash}
+									{onselect}
+								/>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</ScrollArea>
+	{/if}
 </div>
 
 <AlertDialog.Root bind:open={confirmEmptyTrash}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Empty Trash?</AlertDialog.Title>
-			<AlertDialog.Description>
-				{notes.countIn('trash')} note{notes.countIn('trash') === 1 ? '' : 's'} will be deleted from this
-				device permanently. This can't be undone.
-			</AlertDialog.Description>
+			<AlertDialog.Title>{t.emptyTrashTitle}</AlertDialog.Title>
+			<AlertDialog.Description>{t.emptyTrashBody(notes.countIn('trash'))}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
-			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Cancel>{t.cancel}</AlertDialog.Cancel>
 			<AlertDialog.Action
 				onclick={() => {
 					notes.emptyTrash();
 					confirmEmptyTrash = false;
-				}}>Empty Trash</AlertDialog.Action
+				}}>{t.emptyTrashAction}</AlertDialog.Action
 			>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

@@ -66,7 +66,12 @@ export function baseExtensions(
 			// Notes have no title field — the first line *is* the title, so a
 			// document that starts with an H1 would double up in the list.
 			heading: { levels: [1, 2, 3] },
-			link: { openOnClick: false, autolink: true }
+			link: { openOnClick: false, autolink: true },
+			// Markdown has no underline, and `html: false` means there is nothing to
+			// fall back to — so ⌘U used to underline the text on screen and then
+			// drop it silently on the next save. Better to have the shortcut do
+			// nothing than to lose formatting the user could see.
+			underline: false
 		}),
 		TaskList,
 		// nested lets a checklist item hold sub-items; onReadOnlyChecked keeps
@@ -78,11 +83,18 @@ export function baseExtensions(
 		TableRow,
 		TableHeader,
 		TableCell,
-		// Images are referenced by URL. There is no backend, so a local file could
-		// only be inlined as a base64 data URI inside the note's own markdown —
-		// which would bloat storage, pollute search, and be re-signed and relayed
-		// on every shared-note update.
-		Image.configure({ inline: false, allowBase64: false }),
+		/**
+		 * Base64 is required, not optional.
+		 *
+		 * There is no backend, so a picked image can only live inside the note's own
+		 * markdown as a data URI — which is exactly what `prepareMedia` produces and
+		 * what the picker inserts. `allowBase64: false` sets the parse rule to
+		 * `img[src]:not([src^="data:"])`, so every one of those images was silently
+		 * dropped the next time the note was parsed, taking the note's only content
+		 * with it. The cost of `true` is the size, which `media.ts` caps by
+		 * downscaling to ~300 KB before the image ever reaches the document.
+		 */
+		Image.configure({ inline: false, allowBase64: true }),
 		Callout,
 		Toggle,
 		Columns,

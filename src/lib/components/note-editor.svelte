@@ -27,8 +27,14 @@
 	import { createNoteEditor, getMarkdown, setMarkdown, toContent } from '$lib/editor/create';
 	import { setInterim } from '$lib/editor/interim';
 	import { SlashController } from '$lib/editor/slash-controller.svelte';
-	import { BLOCKS, GROUP_LABELS, activeBlock, type BlockDef } from '$lib/editor/blocks';
+	import { BLOCKS, activeBlock, type BlockDef } from '$lib/editor/blocks';
+	import { blockTitle, groupLabel } from '$lib/editor/blocks-i18n';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+	import type { SpeechErrorCode } from '$lib/stores/speech.svelte';
+
 	import { MEDIA_ACCEPT, prepareMedia, storagePressure, type MediaKind } from '$lib/editor/media';
+	import { mediaErrorMessage, storagePressureMessage } from '$lib/editor/media-i18n';
 	import { history } from '$lib/history/store.svelte';
 	import HistoryPanel from './history-panel.svelte';
 	import VoiceRecorderBar from './voice-recorder.svelte';
@@ -40,6 +46,142 @@
 	import ShareDialog from './share-dialog.svelte';
 	import CollabEditor from './collab-editor.svelte';
 	import type { Identity } from '$lib/share/session';
+
+	const DICT: Dict<{
+		noNoteTitle: string;
+		noNoteBody: string;
+		newNote: string;
+		back: string;
+		editedAt: (when: string) => string;
+		restore: string;
+		versionHistory: string;
+		sharingOptions: string;
+		shareNote: string;
+		shared: string;
+		moveToTrash: string;
+		bannerTitle: string;
+		bannerInsecure: string;
+		bannerNoApi: string;
+		dismiss: string;
+		trashedTitle: string;
+		trashedBody: string;
+		linkedFrom: string;
+		blockFormat: (title: string) => string;
+		insert: string;
+		insertLabel: string;
+		startingMic: string;
+		transcribing: (interim: string) => string;
+		listening: string;
+		stop: string;
+		words: (n: number) => string;
+		pasteLink: string;
+		createdNote: (title: string) => string;
+		noRecorder: string;
+		needsSecure: string;
+		noSpeech: string;
+		dictationStopped: string;
+		typingTookOver: string;
+		blockInserted: string;
+		speechErrors: Record<SpeechErrorCode, string>;
+	}> = {
+		en: {
+			noNoteTitle: 'No note selected',
+			noNoteBody: 'Pick a note from the list, or start a new one.',
+			newNote: 'New note',
+			back: 'Back to notes',
+			editedAt: (when) => `Edited ${when}`,
+			restore: 'Restore',
+			versionHistory: 'Version history',
+			sharingOptions: 'Sharing options',
+			shareNote: 'Share note',
+			shared: 'Shared',
+			moveToTrash: 'Move note to Trash',
+			bannerTitle: "Voice notes aren't available here",
+			bannerInsecure:
+				'Speech recognition only runs over a secure (https) connection. You can still type notes normally.',
+			bannerNoApi:
+				'This browser has no built-in speech recognition. Try Chrome, Edge, or Safari — you can still type notes normally.',
+			dismiss: 'Dismiss',
+			trashedTitle: 'This note is in the Trash',
+			trashedBody: 'Restore it to keep editing.',
+			linkedFrom: 'Linked from',
+			blockFormat: (title) => `Block format: ${title}`,
+			insert: 'Insert',
+			insertLabel: 'Insert a block',
+			startingMic: 'Starting microphone…',
+			transcribing: (interim) => `Transcribing “${interim}”…`,
+			listening: 'Listening…',
+			stop: 'Stop',
+			words: (n) => `${n} word${n === 1 ? '' : 's'}`,
+			pasteLink: 'Paste a link (YouTube, Instagram, or any URL)',
+			createdNote: (title) => `Created “${title}”`,
+			noRecorder: "This browser can't record audio. Dictation still works.",
+			needsSecure: 'Voice notes need a secure (https) connection.',
+			noSpeech: "This browser doesn't support voice notes.",
+			dictationStopped: 'Dictation stopped',
+			typingTookOver: 'Typing takes over from your voice.',
+			blockInserted: 'A block was inserted.',
+			speechErrors: {
+				'mic-blocked':
+					'Microphone access was blocked. Allow it in your browser settings to dictate.',
+				'no-microphone': 'No microphone found. Connect one and try again.',
+				'needs-network': 'Speech recognition needs an internet connection on this browser.',
+				'no-language-model': 'This browser has no speech model for the selected language.',
+				'keeps-stopping': 'Dictation keeps stopping. Check your microphone and try again.',
+				'cannot-start': 'Could not start dictation. Try again.',
+				unknown: 'Dictation stopped unexpectedly. Try again.'
+			}
+		},
+		id: {
+			noNoteTitle: 'Tidak ada catatan yang dipilih',
+			noNoteBody: 'Pilih catatan dari daftar, atau mulai yang baru.',
+			newNote: 'Catatan baru',
+			back: 'Kembali ke catatan',
+			editedAt: (when) => `Disunting ${when}`,
+			restore: 'Pulihkan',
+			versionHistory: 'Riwayat versi',
+			sharingOptions: 'Opsi berbagi',
+			shareNote: 'Bagikan catatan',
+			shared: 'Dibagikan',
+			moveToTrash: 'Pindahkan catatan ke Sampah',
+			bannerTitle: 'Catatan suara tidak tersedia di sini',
+			bannerInsecure:
+				'Pengenalan suara hanya berjalan lewat koneksi aman (https). Anda tetap bisa mengetik catatan seperti biasa.',
+			bannerNoApi:
+				'Browser ini tidak punya pengenalan suara bawaan. Coba Chrome, Edge, atau Safari — Anda tetap bisa mengetik catatan seperti biasa.',
+			dismiss: 'Tutup',
+			trashedTitle: 'Catatan ini ada di Sampah',
+			trashedBody: 'Pulihkan untuk melanjutkan menyunting.',
+			linkedFrom: 'Ditautkan dari',
+			blockFormat: (title) => `Format blok: ${title}`,
+			insert: 'Sisipkan',
+			insertLabel: 'Sisipkan blok',
+			startingMic: 'Menyalakan mikrofon…',
+			transcribing: (interim) => `Mentranskripsi “${interim}”…`,
+			listening: 'Mendengarkan…',
+			stop: 'Berhenti',
+			words: (n) => `${n} kata`,
+			pasteLink: 'Tempel tautan (YouTube, Instagram, atau URL apa pun)',
+			createdNote: (title) => `“${title}” dibuat`,
+			noRecorder: 'Browser ini tidak bisa merekam audio. Dikte tetap berfungsi.',
+			needsSecure: 'Catatan suara memerlukan koneksi aman (https).',
+			noSpeech: 'Browser ini tidak mendukung catatan suara.',
+			dictationStopped: 'Dikte dihentikan',
+			typingTookOver: 'Ketikan mengambil alih dari suara Anda.',
+			blockInserted: 'Sebuah blok disisipkan.',
+			speechErrors: {
+				'mic-blocked':
+					'Akses mikrofon diblokir. Izinkan lewat pengaturan browser untuk bisa mendikte.',
+				'no-microphone': 'Mikrofon tidak ditemukan. Sambungkan satu lalu coba lagi.',
+				'needs-network': 'Pengenalan suara memerlukan koneksi internet di browser ini.',
+				'no-language-model': 'Browser ini tidak punya model suara untuk bahasa yang dipilih.',
+				'keeps-stopping': 'Dikte terus berhenti. Periksa mikrofon Anda lalu coba lagi.',
+				'cannot-start': 'Dikte tidak bisa dimulai. Coba lagi.',
+				unknown: 'Dikte berhenti tak terduga. Coba lagi.'
+			}
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	type Props = {
 		note: Note | undefined;
@@ -91,7 +233,7 @@
 	let identity = $state<Identity | null>(null);
 
 	const slash = new SlashController({
-		onBeforeSelect: () => stopDictationForEdit('A block was inserted.'),
+		onBeforeSelect: () => stopDictationForEdit(t.blockInserted),
 		onNeeds: (block) => runBlock(block)
 	});
 
@@ -103,11 +245,10 @@
 	});
 
 	/**
-	 * Run a block, handling the one that needs an argument.
+	 * Run a block, handling the ones that need an argument.
 	 *
-	 * Image is by URL: with no backend, a local file could only be inlined as a
-	 * base64 data URI inside the note's own markdown, which would bloat storage
-	 * and be re-signed and relayed on every shared-note update.
+	 * Images, video, audio and files all arrive from the native file picker and are
+	 * embedded as data URIs — see `pickMedia` below.
 	 */
 	let mediaInput = $state<HTMLInputElement | null>(null);
 	let pendingKind: MediaKind | null = null;
@@ -131,12 +272,12 @@
 
 		const result = await prepareMedia(file, kind);
 		if (!result.ok) {
-			toast.error(result.reason);
+			toast.error(mediaErrorMessage(result.error));
 			return;
 		}
 		const pressure = await storagePressure(result.bytes);
 		if (pressure) {
-			toast.warning(pressure);
+			toast.warning(storagePressureMessage(pressure));
 		}
 
 		if (kind === 'image') {
@@ -162,7 +303,7 @@
 	function promptForEmbed() {
 		const editor = target();
 		if (!editor) return;
-		const url = window.prompt('Paste a link (YouTube, Instagram, or any URL)')?.trim();
+		const url = window.prompt(t.pasteLink)?.trim();
 		if (!url) return;
 		// Insert the node directly for immediate feedback; it serializes back to a
 		// bare URL, so storage stays plain Markdown either way.
@@ -181,7 +322,7 @@
 		if (block.needs === 'record') {
 			if (!recordingSupported()) {
 				// Dictation keeps working regardless; only the clip is unavailable.
-				toast.error("This browser can't record audio. Dictation still works.");
+				toast.error(t.noRecorder);
 				return;
 			}
 			void recorderBar?.begin();
@@ -263,7 +404,7 @@
 			const created = notes.createNote(note?.folderId ?? null);
 			notes.updateBody(created.id, title);
 			onopennote?.(created.id);
-			toast.success(`Created “${title}”`);
+			toast.success(t.createdNote(title));
 		};
 		host.addEventListener('wikilink', onWikiLink);
 		ready = true;
@@ -381,11 +522,7 @@
 
 	export function toggleDictation() {
 		if (!speech.supported) {
-			toast.error(
-				speech.unsupportedReason === 'insecure-context'
-					? 'Voice notes need a secure (https) connection.'
-					: "This browser doesn't support voice notes."
-			);
+			toast.error(speech.unsupportedReason === 'insecure-context' ? t.needsSecure : t.noSpeech);
 			return;
 		}
 		if (speech.listening) stopDictation();
@@ -416,8 +553,8 @@
 			setInterim(editor, tail ? { pos: spanTo, text: tail } : null);
 			void tick().then(() => editor?.commands.scrollIntoView());
 		};
-		speech.onerror = (message) => {
-			toast.error(message);
+		speech.onerror = (code) => {
+			toast.error(t.speechErrors[code]);
 			stopDictation();
 		};
 		return () => {
@@ -432,13 +569,13 @@
 	 * Typing *and* inserting a block both move the span offsets out from under
 	 * the recogniser, so both take this path rather than only keystrokes.
 	 */
-	function stopDictationForEdit(reason = 'Typing takes over from your voice.') {
+	function stopDictationForEdit(reason?: string) {
 		if (!speech.listening) return;
 		speech.stop();
 		const editor = target();
 		if (editor) setInterim(editor, null);
 		spanFrom = spanTo;
-		toast('Dictation stopped', { description: reason });
+		toast(t.dictationStopped, { description: reason ?? t.typingTookOver });
 	}
 
 	function onEditorKeydown() {
@@ -454,13 +591,13 @@
 					<Empty.Media variant="icon">
 						<HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
 					</Empty.Media>
-					<Empty.Title>No note selected</Empty.Title>
-					<Empty.Description>Pick a note from the list, or start a new one.</Empty.Description>
+					<Empty.Title>{t.noNoteTitle}</Empty.Title>
+					<Empty.Description>{t.noNoteBody}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
 					<Button size="sm" onclick={oncreate}>
 						<HugeiconsIcon icon={NoteAddIcon} strokeWidth={2} data-icon="inline-start" />
-						New note
+						{t.newNote}
 					</Button>
 				</Empty.Content>
 			</Empty.Root>
@@ -468,23 +605,23 @@
 	{:else}
 		<header class="flex items-center gap-2 border-b px-3 py-2 safe-t">
 			{#if compact}
-				<Button variant="ghost" size="icon-sm" onclick={onback} aria-label="Back to notes">
+				<Button variant="ghost" size="icon-sm" onclick={onback} aria-label={t.back}>
 					<HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
 				</Button>
 			{/if}
 			<p class="flex-1 truncate text-xs text-muted-foreground">
-				Edited {formatFull(note.updatedAt)}
+				{t.editedAt(formatFull(note.updatedAt))}
 			</p>
 			{#if isTrashed}
 				<Button variant="ghost" size="sm" onclick={() => notes.restoreNote(note.id)}>
 					<HugeiconsIcon icon={DeletePutBackIcon} strokeWidth={2} data-icon="inline-start" />
-					Restore
+					{t.restore}
 				</Button>
 			{:else}
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					aria-label="Version history"
+					aria-label={t.versionHistory}
 					onclick={() => (historyOpen = true)}
 				>
 					<HugeiconsIcon icon={Clock01Icon} strokeWidth={2} />
@@ -492,7 +629,7 @@
 				<Button
 					variant={note.share ? 'secondary' : 'ghost'}
 					size={note.share ? 'sm' : 'icon-sm'}
-					aria-label={note.share ? 'Sharing options' : 'Share note'}
+					aria-label={note.share ? t.sharingOptions : t.shareNote}
 					onclick={() => (shareOpen = true)}
 				>
 					<HugeiconsIcon
@@ -500,12 +637,12 @@
 						strokeWidth={2}
 						data-icon={note.share ? 'inline-start' : undefined}
 					/>
-					{#if note.share}Shared{/if}
+					{#if note.share}{t.shared}{/if}
 				</Button>
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					aria-label="Move note to Trash"
+					aria-label={t.moveToTrash}
 					onclick={() => ontrash(note)}
 				>
 					<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
@@ -517,21 +654,15 @@
 			<div class="px-4 pt-3" transition:fade={{ duration: dur(150) }}>
 				<Alert.Root class="pr-10">
 					<HugeiconsIcon icon={MicOff01Icon} strokeWidth={2} />
-					<Alert.Title>Voice notes aren't available here</Alert.Title>
+					<Alert.Title>{t.bannerTitle}</Alert.Title>
 					<Alert.Description>
-						{#if speech.unsupportedReason === 'insecure-context'}
-							Speech recognition only runs over a secure (https) connection. You can still type
-							notes normally.
-						{:else}
-							This browser has no built-in speech recognition. Try Chrome, Edge, or Safari — you can
-							still type notes normally.
-						{/if}
+						{speech.unsupportedReason === 'insecure-context' ? t.bannerInsecure : t.bannerNoApi}
 					</Alert.Description>
 					<Button
 						variant="ghost"
 						size="icon-xs"
 						class="absolute top-2 right-2"
-						aria-label="Dismiss"
+						aria-label={t.dismiss}
 						onclick={() => notes.setPref('speechBannerDismissed', true)}
 					>
 						<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
@@ -544,8 +675,8 @@
 			<div class="px-4 pt-3">
 				<Alert.Root variant="destructive">
 					<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-					<Alert.Title>This note is in the Trash</Alert.Title>
-					<Alert.Description>Restore it to keep editing.</Alert.Description>
+					<Alert.Title>{t.trashedTitle}</Alert.Title>
+					<Alert.Description>{t.trashedBody}</Alert.Description>
 				</Alert.Root>
 			</div>
 		{/if}
@@ -589,7 +720,7 @@
 
 	{#if note && backlinks.length > 0}
 		<div class="border-t px-4 py-2 text-xs">
-			<span class="text-muted-foreground">Linked from</span>
+			<span class="text-muted-foreground">{t.linkedFrom}</span>
 			<span class="ml-1 inline-flex flex-wrap gap-x-3 gap-y-1">
 				{#each backlinks as link (link.id)}
 					<button
@@ -615,19 +746,21 @@
 							variant="ghost"
 							size="sm"
 							class="min-h-9 gap-1 text-muted-foreground"
-							aria-label="Block format: {currentBlock?.title ?? 'Text'}"
+							aria-label={t.blockFormat(currentBlock ? blockTitle(currentBlock) : t.insert)}
 						>
 							{#if currentBlock}
 								<HugeiconsIcon icon={currentBlock.icon} strokeWidth={2} data-icon="inline-start" />
 							{/if}
-							<span class="max-w-24 truncate">{currentBlock?.title ?? 'Text'}</span>
+							<span class="max-w-24 truncate"
+								>{currentBlock ? blockTitle(currentBlock) : blockTitle(BLOCKS[0])}</span
+							>
 							<HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} class="size-3.5 opacity-60" />
 						</Button>
 					{/snippet}
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="start" class="w-56">
 					<DropdownMenu.Group>
-						<DropdownMenu.Label>{GROUP_LABELS.basic}</DropdownMenu.Label>
+						<DropdownMenu.Label>{groupLabel('basic')}</DropdownMenu.Label>
 						{#each basicBlocks as block (block.id)}
 							<DropdownMenu.CheckboxItem
 								checked={currentBlock?.id === block.id}
@@ -650,16 +783,16 @@
 							variant="ghost"
 							size="sm"
 							class="min-h-9 gap-1 text-muted-foreground"
-							aria-label="Insert a block"
+							aria-label={t.insertLabel}
 						>
 							<HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} data-icon="inline-start" />
-							Insert
+							{t.insert}
 						</Button>
 					{/snippet}
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="start" class="w-56">
 					<DropdownMenu.Group>
-						<DropdownMenu.Label>{GROUP_LABELS.advanced}</DropdownMenu.Label>
+						<DropdownMenu.Label>{groupLabel('advanced')}</DropdownMenu.Label>
 						{#each advancedBlocks as block (block.id)}
 							<DropdownMenu.Item onSelect={() => runBlock(block)}>
 								<HugeiconsIcon icon={block.icon} strokeWidth={2} />
@@ -681,7 +814,7 @@
 					<Button
 						variant="ghost"
 						size="icon-sm"
-						aria-label={block.title}
+						aria-label={blockTitle(block)}
 						aria-pressed={currentBlock?.id === block.id}
 						class={currentBlock?.id === block.id
 							? 'bg-muted text-foreground'
@@ -735,24 +868,22 @@
 				aria-live="polite"
 			>
 				{#if speech.phase === 'starting'}
-					Starting microphone…
+					{t.startingMic}
 				{:else if speech.phase === 'processing'}
-					Transcribing “{speech.interim}”…
+					{t.transcribing(speech.interim)}
 				{:else if speech.interim}
 					{speech.interim}
 				{:else}
-					Listening…
+					{t.listening}
 				{/if}
 			</p>
-			<Button variant="ghost" size="xs" onclick={stopDictation}>Stop</Button>
+			<Button variant="ghost" size="xs" onclick={stopDictation}>{t.stop}</Button>
 		</div>
 	{/if}
 
 	{#if note}
 		<footer class="flex items-center justify-between gap-2 border-t px-3 py-2 safe-b">
-			<p class="text-xs text-muted-foreground tabular-nums">
-				{words} word{words === 1 ? '' : 's'}
-			</p>
+			<p class="text-xs text-muted-foreground tabular-nums">{t.words(words)}</p>
 			<DictationButton ontoggle={toggleDictation} disabled={isTrashed} />
 		</footer>
 	{/if}

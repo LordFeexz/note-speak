@@ -105,24 +105,44 @@ export function exportAllZip(notes: Note[], folders: Folder[]) {
 	download(`note-speak-${stamp(Date.now())}.zip`, zipSync(files), 'application/zip');
 }
 
-export class ImportError extends Error {}
+/** Why a backup was rejected. The UI turns this into copy in the reader's language. */
+export type ImportErrorCode = 'not-json' | 'not-backup' | 'no-notes' | 'newer-version';
 
-/** Parse and validate a backup file. Throws `ImportError` with copy fit for a toast. */
+/**
+ * Carries a code, not a sentence.
+ *
+ * This module has no idea what language the interface is in, and threading a
+ * locale through a parser to build an error string would put translation in the
+ * wrong place. The `message` stays English for stack traces and logs.
+ */
+export class ImportError extends Error {
+	readonly code: ImportErrorCode;
+	constructor(code: ImportErrorCode, message: string) {
+		super(message);
+		this.code = code;
+	}
+}
+
+/** Parse and validate a backup file. Throws `ImportError` carrying a code. */
 export function parseBackup(text: string): Backup {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(text);
 	} catch {
-		throw new ImportError("That file isn't valid JSON.");
+		throw new ImportError('not-json', "That file isn't valid JSON.");
 	}
 	if (!raw || typeof raw !== 'object') {
-		throw new ImportError("That file isn't a Note Speak backup.");
+		throw new ImportError('not-backup', "That file isn't a Note Speak backup.");
 	}
 	const backup = raw as Partial<Backup>;
-	if (backup.app !== EXPORT_APP) throw new ImportError("That file isn't a Note Speak backup.");
-	if (!Array.isArray(backup.notes)) throw new ImportError('That backup has no notes in it.');
+	if (backup.app !== EXPORT_APP) {
+		throw new ImportError('not-backup', "That file isn't a Note Speak backup.");
+	}
+	if (!Array.isArray(backup.notes)) {
+		throw new ImportError('no-notes', 'That backup has no notes in it.');
+	}
 	if (typeof backup.version !== 'number' || backup.version > EXPORT_VERSION) {
-		throw new ImportError('That backup came from a newer version of Note Speak.');
+		throw new ImportError('newer-version', 'That backup came from a newer version of Note Speak.');
 	}
 	return {
 		app: EXPORT_APP,

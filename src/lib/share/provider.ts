@@ -112,7 +112,7 @@ export class SignedDocProvider {
 	 * dropped rather than sent leaves two peers quietly disagreeing about the
 	 * note, which is worse than an error.
 	 */
-	onerror: ((message: string) => void) | null = null;
+	onerror: ((code: 'update-too-large') => void) | null = null;
 
 	#link: ShareLink;
 	#key: CryptoKey | null = null;
@@ -373,7 +373,7 @@ export class SignedDocProvider {
 
 			const total = Math.ceil(cipher.length / CHUNK_PAYLOAD);
 			if (total > MAX_CHUNKS) {
-				this.onerror?.('That change is too large to share.');
+				this.onerror?.('update-too-large');
 				return;
 			}
 			const msgId = crypto.getRandomValues(new Uint32Array(1))[0];

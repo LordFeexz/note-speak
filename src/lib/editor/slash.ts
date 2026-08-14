@@ -1,6 +1,7 @@
 import { Extension, type Editor, type Range } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
-import { searchBlocks, type BlockDef } from './blocks';
+import type { BlockDef } from './blocks';
+import { searchBlocks } from './blocks-i18n';
 
 /**
  * The `/` block picker.

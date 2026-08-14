@@ -9,7 +9,7 @@
  * replacing is what produced "simpan simpan gambar simpan gambar ini".)
  */
 
-type Command =
+export type Command =
 	| { kind: 'text'; value: string }
 	/** Removes the preceding segment entirely. */
 	| { kind: 'scratch' };
@@ -20,7 +20,12 @@ type Command =
  * Keyed by the *primary subtag* so regional variants share a table — `en-GB`
  * and `en-US` want the same words, and `id-ID` is the only Indonesian tag.
  */
-const COMMANDS: Record<string, Record<string, Command>> = {
+/**
+ * Exported so the documentation renders this exact table rather than a copy of
+ * it — a spoken command that changed here but not there would be worse than no
+ * documentation at all.
+ */
+export const COMMANDS: Record<string, Record<string, Command>> = {
 	en: {
 		period: { kind: 'text', value: '.' },
 		'full stop': { kind: 'text', value: '.' },

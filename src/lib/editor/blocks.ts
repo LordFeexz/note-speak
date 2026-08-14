@@ -44,8 +44,40 @@ import MathIcon from '@hugeicons/core-free-icons/MathIcon';
  */
 export type BlockGroup = 'basic' | 'advanced';
 
+/**
+ * Every block id, as a union.
+ *
+ * Not decoration: it is what makes a missing translation or a missing docs entry
+ * a compile error rather than a gap somebody notices in production.
+ */
+export type BlockId =
+	| 'paragraph'
+	| 'heading1'
+	| 'heading2'
+	| 'heading3'
+	| 'bulletList'
+	| 'orderedList'
+	| 'taskList'
+	| 'blockquote'
+	| 'codeBlock'
+	| 'table'
+	| 'image'
+	| 'voice'
+	| 'video'
+	| 'audio'
+	| 'file'
+	| 'embed'
+	| 'callout-note'
+	| 'callout-warning'
+	| 'callout-tip'
+	| 'toggle'
+	| 'columns'
+	| 'mermaid'
+	| 'math'
+	| 'horizontalRule';
+
 export type BlockDef = {
-	id: string;
+	id: BlockId;
 	group: BlockGroup;
 	title: string;
 	/** Extra search terms for the slash menu — what someone might type instead. */
@@ -308,35 +340,12 @@ export const BLOCKS: BlockDef[] = [
 ];
 
 /**
- * Blocks matching a slash-menu query, best match first.
+ * Searching and display names live in `blocks-i18n.ts`.
  *
- * Ranking matters more than it looks: Table lists "columns" as a keyword, so an
- * unranked filter put Table above Columns and `/columns` + Enter inserted a
- * table. A title match must always beat a keyword match.
+ * This file is the registry — ids, icons, commands and Markdown behaviour — and
+ * is imported by the prerendered documentation pages, which have no interface
+ * language. Anything a reader sees belongs on the other side of that line.
  */
-export function searchBlocks(query: string): BlockDef[] {
-	const q = query.trim().toLowerCase();
-	if (!q) return BLOCKS;
-
-	const score = (block: BlockDef): number => {
-		const title = block.title.toLowerCase();
-		if (title === q) return 0;
-		if (title.startsWith(q)) return 1;
-		if (title.includes(q)) return 2;
-		if (block.keywords.some((keyword) => keyword === q)) return 3;
-		if (block.keywords.some((keyword) => keyword.startsWith(q))) return 4;
-		if (block.keywords.some((keyword) => keyword.includes(q))) return 5;
-		return Number.POSITIVE_INFINITY;
-	};
-
-	return (
-		BLOCKS.map((block, index) => ({ block, rank: score(block), index }))
-			.filter((entry) => entry.rank !== Number.POSITIVE_INFINITY)
-			// Registry order breaks ties, so equally-good matches stay predictable.
-			.sort((a, b) => a.rank - b.rank || a.index - b.index)
-			.map((entry) => entry.block)
-	);
-}
 
 /** The Basic block the caret is currently in, for the Format control's label. */
 export function activeBlock(editor: Editor | null): BlockDef | undefined {

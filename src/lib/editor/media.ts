@@ -42,9 +42,25 @@ export const MEDIA_LIMITS = {
 
 export type MediaKind = keyof typeof MEDIA_LIMITS;
 
+/**
+ * Why a file was refused, as a code plus the numbers to put in the sentence.
+ *
+ * The numbers are the point — "too large" alone leaves someone guessing whether
+ * trimming a second off the clip would help — but the sentence around them
+ * belongs to whichever language the interface is in, so it is built by the UI.
+ */
+export type MediaError =
+	| { code: 'too-large'; kind: MediaKind; size: string; limit: string }
+	| { code: 'image-too-large'; size: string; limit: string }
+	| { code: 'unreadable'; kind: MediaKind };
+
 export type MediaResult =
 	| { ok: true; src: string; name: string; size: string; bytes: number }
-	| { ok: false; reason: string };
+	| { ok: false; error: MediaError };
+
+/** How close storage is to full, for a warning the UI phrases. */
+export type StoragePressure =
+	{ code: 'insufficient'; needs: string; free: string } | { code: 'nearly-full'; left: string };
 
 export function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
@@ -132,15 +148,18 @@ export async function prepareMedia(file: File, kind: MediaKind): Promise<MediaRe
 	if (kind !== 'image' && file.size > limit) {
 		return {
 			ok: false,
-			// The numbers matter: "too large" alone leaves someone guessing whether
-			// trimming a second off the clip would help.
-			reason: `That ${kind} is ${formatBytes(file.size)}. Notes can hold up to ${formatBytes(limit)}, because the file is stored inside the note itself.`
+			error: {
+				code: 'too-large',
+				kind,
+				size: formatBytes(file.size),
+				limit: formatBytes(limit)
+			}
 		};
 	}
 	if (kind === 'image' && file.size > limit) {
 		return {
 			ok: false,
-			reason: `That image is ${formatBytes(file.size)}, which is too large to process. Try one under ${formatBytes(limit)}.`
+			error: { code: 'image-too-large', size: formatBytes(file.size), limit: formatBytes(limit) }
 		};
 	}
 
@@ -155,10 +174,7 @@ export async function prepareMedia(file: File, kind: MediaKind): Promise<MediaRe
 			bytes: blob.size
 		};
 	} catch {
-		return {
-			ok: false,
-			reason: `That ${kind} could not be read. It may be corrupt or an unsupported format.`
-		};
+		return { ok: false, error: { code: 'unreadable', kind } };
 	}
 }
 
@@ -168,17 +184,17 @@ export async function prepareMedia(file: File, kind: MediaKind): Promise<MediaRe
  * Failing on write leaves a half-inserted note; asking first lets us say so
  * while the user still has the file in hand.
  */
-export async function storagePressure(incoming: number): Promise<string | null> {
+export async function storagePressure(incoming: number): Promise<StoragePressure | null> {
 	if (!navigator.storage?.estimate) return null;
 	try {
 		const { quota, usage } = await navigator.storage.estimate();
 		if (!quota || usage === undefined) return null;
 		const free = quota - usage;
 		if (incoming > free) {
-			return `Not enough storage left — this needs ${formatBytes(incoming)} and only ${formatBytes(free)} is free.`;
+			return { code: 'insufficient', needs: formatBytes(incoming), free: formatBytes(free) };
 		}
 		if (free - incoming < quota * 0.1) {
-			return `Storage is nearly full (${formatBytes(free - incoming)} left). Export a backup before adding more media.`;
+			return { code: 'nearly-full', left: formatBytes(free - incoming) };
 		}
 		return null;
 	} catch {

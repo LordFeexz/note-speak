@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { GROUP_LABELS, type BlockDef, type BlockGroup } from '$lib/editor/blocks';
+	import type { BlockDef, BlockGroup } from '$lib/editor/blocks';
+	import { blockTitle, groupLabel } from '$lib/editor/blocks-i18n';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	const DICT: Dict<{ insertBlock: string }> = {
+		en: { insertBlock: 'Insert block' },
+		id: { insertBlock: 'Sisipkan blok' }
+	};
+	const t = $derived(DICT[locale.current]);
 	import type { SlashState } from '$lib/editor/slash';
 
 	/**
@@ -73,13 +82,13 @@
 			{position.bottom !== undefined ? `bottom: ${position.bottom}px;` : ''}
 		"
 		role="listbox"
-		aria-label="Insert block"
+		aria-label={t.insertBlock}
 	>
 		{#each groups as group (group.group)}
 			<p
 				class="px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
 			>
-				{GROUP_LABELS[group.group]}
+				{groupLabel(group.group)}
 			</p>
 			{#each group.items as entry (entry.block.id)}
 				<button
@@ -94,7 +103,7 @@
 					onclick={() => onselect(entry.block)}
 				>
 					<HugeiconsIcon icon={entry.block.icon} strokeWidth={2} class="size-4 shrink-0" />
-					{entry.block.title}
+					{blockTitle(entry.block)}
 				</button>
 			{/each}
 		{/each}

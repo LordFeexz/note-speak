@@ -103,22 +103,52 @@ export function searchableText(body: string): string {
 		.replace(/^:::$/gm, '');
 }
 
-/** Derived note title: first non-empty line, macOS Notes style. */
-export function noteTitle(note: Note): string {
+/**
+ * Derived note title: first non-empty line, macOS Notes style.
+ *
+ * The fallback is a parameter because this function has two kinds of caller. The
+ * list and the editor show it to a reader, and pass a translated string. Search,
+ * export filenames and the workspace index use it as a *stable identifier* —
+ * those must not change meaning when the reader switches language, so they take
+ * the English default.
+ */
+export function noteTitle(note: Note, fallback = 'New Note'): string {
 	const line = note.body.split('\n').find((l) => l.trim().length > 0);
-	return plainify(line ?? '').slice(0, 120) || 'New Note';
+	return plainify(line ?? '').slice(0, 120) || fallback;
 }
 
-/** Derived one-line preview: everything after the title line. */
-export function notePreview(note: Note): string {
+/**
+ * Everything after the title line, flattened to a single string.
+ *
+ * `chars` is what makes this serve both the one-line row preview and the much
+ * longer card excerpt — the card clamps to three lines in CSS, so it only needs
+ * enough text to fill them.
+ */
+export function notePreview(note: Note, chars = 160, fallback = 'No additional text'): string {
 	const lines = note.body.split('\n');
 	const titleIndex = lines.findIndex((l) => l.trim().length > 0);
-	if (titleIndex === -1) return 'No additional text';
+	if (titleIndex === -1) return fallback;
 	const rest = lines
 		.slice(titleIndex + 1)
 		.map(plainify)
 		.filter(Boolean)
 		.join(' ')
 		.trim();
-	return rest.length > 0 ? rest.slice(0, 160) : 'No additional text';
+	return rest.length > 0 ? rest.slice(0, chars) : fallback;
+}
+
+/**
+ * The note's first image, for a card thumbnail. `null` when it has none.
+ *
+ * Deliberately a local, non-global regex: the `/g` patterns in
+ * `history/media.ts` carry `lastIndex` between calls, and reusing one from a
+ * render path would make every other card silently miss its image.
+ *
+ * `[^)\s]+` is safe against a megabyte-long data URI — base64 contains neither a
+ * closing paren nor whitespace, so there is nothing for the engine to backtrack
+ * over.
+ */
+export function noteThumbnail(note: Note): string | null {
+	const match = /!\[[^\]]*\]\((data:image\/[^)\s]+|https?:\/\/[^)\s]+)\)/.exec(note.body);
+	return match ? match[1] : null;
 }

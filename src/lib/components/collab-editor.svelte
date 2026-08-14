@@ -6,6 +6,11 @@
 	import { toast } from 'svelte-sonner';
 	import { SlashController } from '$lib/editor/slash-controller.svelte';
 	import { MEDIA_ACCEPT, prepareMedia, storagePressure, type MediaKind } from '$lib/editor/media';
+	import {
+		mediaErrorMessage,
+		shareErrorMessage,
+		storagePressureMessage
+	} from '$lib/editor/media-i18n';
 	import FollowingPointer from './following-pointer.svelte';
 	import BlockMenu from './block-menu.svelte';
 	import {
@@ -18,6 +23,31 @@
 	} from '$lib/share/session';
 	import type { ShareLink } from '$lib/share/crypto';
 	import { workspaces } from '$lib/workspace/store.svelte';
+	import { locale } from '$lib/i18n/locale.svelte';
+	import type { Dict } from '$lib/i18n/dict';
+
+	const DICT: Dict<{
+		pasteLink: string;
+		someone: string;
+		emptyTitle: string;
+		emptyBody: string;
+	}> = {
+		en: {
+			pasteLink: 'Paste a link (YouTube, Instagram, or any URL)',
+			someone: 'Someone',
+			emptyTitle: "Nobody's here right now",
+			emptyBody:
+				"This note lives on its collaborators' devices, not on a server. It'll appear as soon as someone who has it opens the link."
+		},
+		id: {
+			pasteLink: 'Tempel tautan (YouTube, Instagram, atau URL apa pun)',
+			someone: 'Seseorang',
+			emptyTitle: 'Belum ada siapa-siapa di sini',
+			emptyBody:
+				'Catatan ini hidup di perangkat para kolaboratornya, bukan di server. Ia akan muncul begitu seseorang yang memilikinya membuka tautannya.'
+		}
+	};
+	const t = $derived(DICT[locale.current]);
 
 	type Props = {
 		link: ShareLink;
@@ -69,7 +99,7 @@
 		onNeeds: (block) => {
 			if (!editor) return;
 			if (block.needs === 'url') {
-				const url = window.prompt('Paste a link (YouTube, Instagram, or any URL)')?.trim();
+				const url = window.prompt(t.pasteLink)?.trim();
 				if (url)
 					editor
 						.chain()
@@ -93,11 +123,11 @@
 
 		const result = await prepareMedia(file, kind);
 		if (!result.ok) {
-			toast.error(result.reason);
+			toast.error(mediaErrorMessage(result.error));
 			return;
 		}
 		const pressure = await storagePressure(result.bytes);
-		if (pressure) toast.warning(pressure);
+		if (pressure) toast.warning(storagePressureMessage(pressure));
 
 		if (kind === 'image') {
 			editor.chain().focus().setImage({ src: result.src, alt: result.name }).run();
@@ -167,7 +197,7 @@
 					role: opened.role
 				});
 			};
-			opened.provider.onerror = (message) => toast.error(message);
+			opened.provider.onerror = (code) => toast.error(shareErrorMessage(code));
 			opened.provider.onstatus = pushState;
 			pushState();
 
@@ -218,7 +248,7 @@
 						id,
 						x: state.pointer.x,
 						y: state.pointer.y,
-						name: state.user?.name ?? 'Someone',
+						name: state.user?.name ?? t.someone,
 						color: state.user?.color ?? '#888'
 					}));
 				pushState();
@@ -289,11 +319,8 @@
 		-->
 		<div class="pointer-events-none absolute inset-0 grid place-items-center p-6">
 			<div class="max-w-xs text-center">
-				<p class="text-sm font-medium">Nobody's here right now</p>
-				<p class="mt-1 text-xs text-muted-foreground">
-					This note lives on its collaborators' devices, not on a server. It'll appear as soon as
-					someone who has it opens the link.
-				</p>
+				<p class="text-sm font-medium">{t.emptyTitle}</p>
+				<p class="mt-1 text-xs text-muted-foreground">{t.emptyBody}</p>
 			</div>
 		</div>
 	{/if}

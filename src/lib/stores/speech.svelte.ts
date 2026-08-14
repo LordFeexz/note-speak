@@ -72,23 +72,37 @@ export const LANGUAGES = [
 	{ value: 'ru-RU', label: 'Русский' }
 ];
 
-/** Human-readable copy for each spec error code. `null` = swallow it silently. */
-function errorMessage(code: string): string | null {
+/**
+ * What went wrong, as a code the UI can translate.
+ *
+ * `null` means swallow it silently — `no-speech` and `aborted` fire during
+ * ordinary use and a toast for either would be noise.
+ */
+export type SpeechErrorCode =
+	| 'mic-blocked'
+	| 'no-microphone'
+	| 'needs-network'
+	| 'no-language-model'
+	| 'keeps-stopping'
+	| 'cannot-start'
+	| 'unknown';
+
+function errorCode(code: string): SpeechErrorCode | null {
 	switch (code) {
 		case 'not-allowed':
 		case 'service-not-allowed':
-			return 'Microphone access was blocked. Allow it in your browser settings to dictate.';
+			return 'mic-blocked';
 		case 'audio-capture':
-			return 'No microphone found. Connect one and try again.';
+			return 'no-microphone';
 		case 'network':
-			return 'Speech recognition needs an internet connection on this browser.';
+			return 'needs-network';
 		case 'language-not-supported':
-			return 'This browser has no speech model for the selected language.';
+			return 'no-language-model';
 		case 'no-speech':
 		case 'aborted':
 			return null;
 		default:
-			return 'Dictation stopped unexpectedly. Try again.';
+			return 'unknown';
 	}
 }
 
@@ -153,7 +167,7 @@ class SpeechController {
 
 	/** Fired whenever `finalText`/`interim` change; the consumer rewrites the whole span. */
 	onupdate: (() => void) | null = null;
-	onerror: ((message: string) => void) | null = null;
+	onerror: ((code: SpeechErrorCode) => void) | null = null;
 
 	#recognition: SpeechRecognitionLike | null = null;
 	/** What the *user* wants, as opposed to whether the engine happens to be running. */
@@ -260,7 +274,7 @@ class SpeechController {
 		};
 
 		rec.onerror = (event) => {
-			const message = errorMessage(event.error);
+			const message = errorCode(event.error);
 			if (message) {
 				this.onerror?.(message);
 				// Permission and hardware failures are terminal — don't fight them.
@@ -283,7 +297,7 @@ class SpeechController {
 				this.#intent = 'idle';
 				this.listening = false;
 				this.phase = 'idle';
-				this.onerror?.('Dictation keeps stopping. Check your microphone and try again.');
+				this.onerror?.('keeps-stopping');
 				return;
 			}
 			try {
@@ -343,7 +357,7 @@ class SpeechController {
 		} catch {
 			this.#intent = 'idle';
 			this.#stopEngine();
-			this.onerror?.('Could not start dictation. Try again.');
+			this.onerror?.('cannot-start');
 		}
 	}
 

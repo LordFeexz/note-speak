@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { docHref } from '$lib/docs/nav';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import Mic01Icon from '@hugeicons/core-free-icons/Mic01Icon';
 	import Sun01Icon from '@hugeicons/core-free-icons/Sun01Icon';
@@ -11,6 +12,8 @@
 
 	const year = new Date().getFullYear();
 </script>
+
+<!-- eslint-disable svelte/no-navigation-without-resolve -- the docs links go through `docHref()`, which resolves. -->
 
 <div class="flex min-h-dvh flex-col">
 	<header class="sticky top-0 z-40 safe-t">
@@ -25,6 +28,12 @@
 				Note Speak
 			</a>
 			<div class="flex-1"></div>
+			<a
+				href={docHref('en', '')}
+				class="hidden rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
+			>
+				Docs
+			</a>
 			<a
 				href={resolve('/privacy')}
 				class="hidden rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
@@ -51,7 +60,9 @@
 			class="mx-auto flex w-[min(72rem,calc(100%-3rem))] flex-col gap-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center"
 		>
 			<p class="flex-1">© {year} Note Speak. Your notes stay on your device.</p>
-			<nav class="flex gap-5" aria-label="Legal">
+			<!-- No longer legal-only, so the label says what it is. -->
+			<nav class="flex gap-5" aria-label="Footer">
+				<a href={docHref('en', '')} class="transition-colors hover:text-foreground">Docs</a>
 				<a href={resolve('/terms')} class="transition-colors hover:text-foreground">Terms</a>
 				<a href={resolve('/privacy')} class="transition-colors hover:text-foreground">Privacy</a>
 				<a href={resolve('/app')} class="transition-colors hover:text-foreground">Open app</a>
