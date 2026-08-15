@@ -11,6 +11,7 @@
 	import UserGroupIcon from '@hugeicons/core-free-icons/UserGroupIcon';
 	import DragDropVerticalIcon from '@hugeicons/core-free-icons/DragDropVerticalIcon';
 
+	import { tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -49,6 +50,15 @@
 		 * would otherwise open the note you just filed somewhere else.
 		 */
 		suppressClick?: () => boolean;
+		/**
+		 * The card the list would focus if you tabbed into it — the moving half of a
+		 * roving tabindex.
+		 *
+		 * Every card being a tab stop means Tab through a hundred notes is a hundred
+		 * stops, and each card has *two* controls, so it is really two hundred. Only
+		 * the active card is reachable by Tab; arrow keys move which one that is.
+		 */
+		active?: boolean;
 	};
 	let {
 		note,
@@ -58,7 +68,8 @@
 		onselect,
 		onhandledown,
 		dragging = false,
-		suppressClick
+		suppressClick,
+		active = false
 	}: Props = $props();
 
 	const DICT: Dict<{
@@ -170,6 +181,52 @@
 		});
 	}
 
+	/**
+	 * The ⋯ menu is not built until you reach for it.
+	 *
+	 * A `DropdownMenu.Root` per card is the single most expensive thing in a long
+	 * list. Measured over 500 notes: 343 MB of JS heap with them, 113 MB without,
+	 * and a layout switch in the grouped view dropping from 1301 ms to 288 ms. The
+	 * menu's *content* was already lazy — it is the root and trigger machinery,
+	 * multiplied by the note count, that costs.
+	 *
+	 * Arming is split by pointer type, and that split is load-bearing.
+	 *
+	 * With a mouse, hovering the card arms it — a hover always precedes the click,
+	 * so the real trigger exists by the time you press.
+	 *
+	 * Touch cannot use that. The browser fires `pointerenter` immediately *before*
+	 * `pointerdown` for a finger, so arming there swapped the placeholder out
+	 * mid-tap: the press landed on a node that was being replaced, the click was
+	 * dispatched on the wrapper instead of either button, and the first tap on ⋯
+	 * did nothing at all — on the layout where that button is permanently visible.
+	 * So touch arms from the placeholder's own `pointerdown` and opens the menu
+	 * directly, never depending on a click surviving the swap.
+	 */
+	let menuReady = $state(false);
+	let menuOpen = $state(false);
+	let triggerEl = $state<HTMLElement | null>(null);
+
+	function armMenu(event: PointerEvent) {
+		if (event.pointerType !== 'mouse') return;
+		menuReady = true;
+	}
+
+	async function armAndOpen() {
+		menuReady = true;
+		await tick();
+		menuOpen = true;
+		triggerEl?.focus();
+	}
+
+	/** Keep focus on the button when arming replaces it mid-tab. */
+	async function armAndKeepFocus() {
+		if (menuReady) return;
+		menuReady = true;
+		await tick();
+		triggerEl?.focus();
+	}
+
 	const base =
 		'flex w-full cursor-pointer flex-col text-left transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
 	// Cards carry no padding of their own: the thumbnail is full-bleed, so the
@@ -183,11 +240,41 @@
 	);
 	const body = $derived(isCard ? 'flex w-full flex-1 flex-col gap-1.5 p-2.5 pr-9' : 'contents');
 	const selectedClass = 'bg-note-accent text-note-accent-foreground hover:bg-note-accent';
+
+	/**
+	 * Skip the work for cards that are off screen.
+	 *
+	 * `content-visibility: auto` lets the browser drop layout, paint *and image
+	 * decode* for anything scrolled out of view — which is the cost a grid of
+	 * base64 thumbnails adds, and the one measurement showed the lazy ⋯ menu does
+	 * not touch. Every card stays in the DOM, so find-in-page and the FLIP
+	 * animations keep working; only the rendering is deferred.
+	 *
+	 * `contain-intrinsic-size` is what makes it safe: without a placeholder size
+	 * the scrollbar would resize as cards render, so it is set per layout to the
+	 * height that layout's cards actually have.
+	 */
+	const skipOffscreen = $derived(
+		layout === 'compact'
+			? 'content-visibility:auto;contain-intrinsic-size:auto 36px'
+			: isCard
+				? `content-visibility:auto;contain-intrinsic-size:auto ${thumbnail ? 260 : 120}px`
+				: 'content-visibility:auto;contain-intrinsic-size:auto 52px'
+	);
 </script>
 
-<div data-note-card class="group/note relative {dragging ? 'opacity-40' : ''}">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	data-note-card={note.id}
+	class="group/note relative {dragging ? 'opacity-40' : ''}"
+	style={skipOffscreen}
+	onpointerenter={armMenu}
+	onfocusin={() => (menuReady = true)}
+>
 	<button
 		type="button"
+		data-card-button
+		tabindex={active ? 0 : -1}
 		class="{base} {shape} {selected ? selectedClass : ''}"
 		aria-current={selected ? 'true' : undefined}
 		onclick={() => {
@@ -271,100 +358,124 @@
 		</button>
 	{/if}
 
-	<DropdownMenu.Root>
-		<DropdownMenu.Trigger>
-			{#snippet child({ props })}
-				<Button
-					{...props}
-					variant="ghost"
-					size="icon-sm"
-					class="absolute top-1.5 right-1 opacity-0 group-hover/note:opacity-100 focus-visible:opacity-100 max-md:opacity-100 {selected
-						? 'text-note-accent-foreground hover:bg-black/15 hover:text-note-accent-foreground'
-						: ''}"
-					aria-label={t.optionsFor(title)}
-				>
-					<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-				</Button>
-			{/snippet}
-		</DropdownMenu.Trigger>
-		<DropdownMenu.Content align="end">
-			{#if isTrash}
-				<DropdownMenu.Group>
-					<DropdownMenu.Item onSelect={() => notes.restoreNote(note.id)}>
-						<HugeiconsIcon icon={DeletePutBackIcon} strokeWidth={2} />
-						{t.restore}
-					</DropdownMenu.Item>
-					<DropdownMenu.Item variant="destructive" onSelect={() => notes.purgeNote(note.id)}>
-						<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-						{t.deleteForever}
-					</DropdownMenu.Item>
-				</DropdownMenu.Group>
-			{:else}
-				<!--
+	{#if !menuReady}
+		<!--
+			A stand-in until the card is hovered or focused. Identical in class, label
+			and tab behaviour, so nothing moves or changes name when the real trigger
+			replaces it.
+		-->
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			tabindex={active ? 0 : -1}
+			class="absolute top-1.5 right-1 opacity-0 group-hover/note:opacity-100 focus-visible:opacity-100 max-md:opacity-100 {selected
+				? 'text-note-accent-foreground hover:bg-black/15 hover:text-note-accent-foreground'
+				: ''}"
+			aria-label={t.optionsFor(title)}
+			onfocus={armAndKeepFocus}
+			onpointerdown={armAndOpen}
+			onclick={armAndOpen}
+		>
+			<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+		</Button>
+	{:else}
+		<DropdownMenu.Root bind:open={menuOpen}>
+			<DropdownMenu.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						bind:ref={triggerEl}
+						variant="ghost"
+						size="icon-sm"
+						tabindex={active ? 0 : -1}
+						class="absolute top-1.5 right-1 opacity-0 group-hover/note:opacity-100 focus-visible:opacity-100 max-md:opacity-100 {selected
+							? 'text-note-accent-foreground hover:bg-black/15 hover:text-note-accent-foreground'
+							: ''}"
+						aria-label={t.optionsFor(title)}
+					>
+						<HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+					</Button>
+				{/snippet}
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Content align="end">
+				{#if isTrash}
+					<DropdownMenu.Group>
+						<DropdownMenu.Item onSelect={() => notes.restoreNote(note.id)}>
+							<HugeiconsIcon icon={DeletePutBackIcon} strokeWidth={2} />
+							{t.restore}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item variant="destructive" onSelect={() => notes.purgeNote(note.id)}>
+							<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+							{t.deleteForever}
+						</DropdownMenu.Item>
+					</DropdownMenu.Group>
+				{:else}
+					<!--
 					This menu is the keyboard and screen-reader way to move a note, and it
 					stays exactly as it was when the board gained dragging. Dragging is an
 					addition; it is never the only route.
 				-->
-				<DropdownMenu.Group>
-					<DropdownMenu.Label>{t.moveTo}</DropdownMenu.Label>
-					<DropdownMenu.Item
-						disabled={note.folderId === null}
-						onSelect={() => notes.moveNote(note.id, null)}
-					>
-						<HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
-						{t.allNotes}
-					</DropdownMenu.Item>
-					{#each notes.folders as folder (folder.id)}
-						<DropdownMenu.Item
-							disabled={note.folderId === folder.id}
-							onSelect={() => notes.moveNote(note.id, folder.id)}
-						>
-							<HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />
-							{folder.name}
-						</DropdownMenu.Item>
-					{/each}
-				</DropdownMenu.Group>
-				{#if workspaces.workspaces.length > 0}
-					<DropdownMenu.Separator />
 					<DropdownMenu.Group>
-						<DropdownMenu.Label>{t.workspaceGroup}</DropdownMenu.Label>
-						{#each workspaces.workspaces as workspace (workspace.id)}
-							{#if note.workspaceId === workspace.id}
-								<DropdownMenu.Item
-									onSelect={() =>
-										note.share && workspaces.removeNote(workspace.id, note.share.docId)}
-								>
-									<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-									{t.removeFrom(workspace.name)}
-								</DropdownMenu.Item>
-							{:else}
-								<DropdownMenu.Item
-									disabled={!!note.workspaceId}
-									onSelect={() => addToWorkspace(workspace.id)}
-								>
-									<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-									{t.addTo(workspace.name)}
-								</DropdownMenu.Item>
-							{/if}
+						<DropdownMenu.Label>{t.moveTo}</DropdownMenu.Label>
+						<DropdownMenu.Item
+							disabled={note.folderId === null}
+							onSelect={() => notes.moveNote(note.id, null)}
+						>
+							<HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
+							{t.allNotes}
+						</DropdownMenu.Item>
+						{#each notes.folders as folder (folder.id)}
+							<DropdownMenu.Item
+								disabled={note.folderId === folder.id}
+								onSelect={() => notes.moveNote(note.id, folder.id)}
+							>
+								<HugeiconsIcon icon={Folder01Icon} strokeWidth={2} />
+								{folder.name}
+							</DropdownMenu.Item>
 						{/each}
 					</DropdownMenu.Group>
+					{#if workspaces.workspaces.length > 0}
+						<DropdownMenu.Separator />
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>{t.workspaceGroup}</DropdownMenu.Label>
+							{#each workspaces.workspaces as workspace (workspace.id)}
+								{#if note.workspaceId === workspace.id}
+									<DropdownMenu.Item
+										onSelect={() =>
+											note.share && workspaces.removeNote(workspace.id, note.share.docId)}
+									>
+										<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+										{t.removeFrom(workspace.name)}
+									</DropdownMenu.Item>
+								{:else}
+									<DropdownMenu.Item
+										disabled={!!note.workspaceId}
+										onSelect={() => addToWorkspace(workspace.id)}
+									>
+										<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+										{t.addTo(workspace.name)}
+									</DropdownMenu.Item>
+								{/if}
+							{/each}
+						</DropdownMenu.Group>
+					{/if}
+					<DropdownMenu.Separator />
+					<DropdownMenu.Group>
+						<DropdownMenu.Item onSelect={() => notes.togglePin(note.id)}>
+							<HugeiconsIcon icon={note.pinnedAt === null ? PinIcon : PinOffIcon} strokeWidth={2} />
+							{note.pinnedAt === null ? t.pin : t.unpin}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onSelect={() => exportNoteMarkdown(note)}>
+							<HugeiconsIcon icon={Download04Icon} strokeWidth={2} />
+							{t.exportMd}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item variant="destructive" onSelect={trash}>
+							<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+							{t.moveToTrash}
+						</DropdownMenu.Item>
+					</DropdownMenu.Group>
 				{/if}
-				<DropdownMenu.Separator />
-				<DropdownMenu.Group>
-					<DropdownMenu.Item onSelect={() => notes.togglePin(note.id)}>
-						<HugeiconsIcon icon={note.pinnedAt === null ? PinIcon : PinOffIcon} strokeWidth={2} />
-						{note.pinnedAt === null ? t.pin : t.unpin}
-					</DropdownMenu.Item>
-					<DropdownMenu.Item onSelect={() => exportNoteMarkdown(note)}>
-						<HugeiconsIcon icon={Download04Icon} strokeWidth={2} />
-						{t.exportMd}
-					</DropdownMenu.Item>
-					<DropdownMenu.Item variant="destructive" onSelect={trash}>
-						<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-						{t.moveToTrash}
-					</DropdownMenu.Item>
-				</DropdownMenu.Group>
-			{/if}
-		</DropdownMenu.Content>
-	</DropdownMenu.Root>
+			</DropdownMenu.Content>
+		</DropdownMenu.Root>
+	{/if}
 </div>

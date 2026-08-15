@@ -121,6 +121,95 @@
 		}
 	});
 
+	/**
+	 * Keyboard navigation across columns.
+	 *
+	 * Tracked by note id rather than by index: columns have different lengths, and
+	 * an index that means row 3 of Work means nothing in a column with two notes.
+	 * `lastRow` remembers how far down you were in each column, so stepping away
+	 * and back lands where you left rather than at the top.
+	 */
+	let activeId = $state<string | null>(null);
+	const lastRow: Record<string, number> = {};
+
+	const active = $derived.by(() => {
+		const first = columns.find((column) => (grouped.get(key(column.id)) ?? []).length > 0);
+		const fallback = first
+			? { column: key(first.id), row: 0, note: grouped.get(key(first.id))![0].id }
+			: null;
+		if (!activeId) return fallback;
+		for (const column of columns) {
+			const items = grouped.get(key(column.id)) ?? [];
+			const row = items.findIndex((note) => note.id === activeId);
+			if (row !== -1) return { column: key(column.id), row, note: activeId };
+		}
+		// The active note was moved, trashed or filtered away.
+		return fallback;
+	});
+
+	function focusNote(id: string) {
+		activeId = id;
+		const card = board?.querySelector<HTMLElement>(
+			`[data-note-card="${CSS.escape(id)}"] [data-card-button]`
+		);
+		if (!card) return;
+		card.focus();
+		card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	}
+
+	function onBoardKeydown(event: KeyboardEvent) {
+		if (event.altKey || event.ctrlKey || event.metaKey || !active) return;
+		const order = columns.map((column) => key(column.id));
+		const columnIndex = order.indexOf(active.column);
+		const items = (id: string) => grouped.get(id) ?? [];
+		let target: string | null = null;
+
+		switch (event.key) {
+			case 'ArrowDown':
+			case 'ArrowUp': {
+				const list = items(active.column);
+				const row = Math.min(
+					list.length - 1,
+					Math.max(0, active.row + (event.key === 'ArrowDown' ? 1 : -1))
+				);
+				target = list[row]?.id ?? null;
+				break;
+			}
+			case 'ArrowRight':
+			case 'ArrowLeft': {
+				lastRow[active.column] = active.row;
+				// Step over empty columns rather than stalling on one you cannot enter.
+				const direction = event.key === 'ArrowRight' ? 1 : -1;
+				for (let i = columnIndex + direction; i >= 0 && i < order.length; i += direction) {
+					const list = items(order[i]);
+					if (list.length === 0) continue;
+					target = list[Math.min(lastRow[order[i]] ?? 0, list.length - 1)]?.id ?? null;
+					break;
+				}
+				break;
+			}
+			case 'Home':
+				target = items(active.column)[0]?.id ?? null;
+				break;
+			case 'End': {
+				const list = items(active.column);
+				target = list[list.length - 1]?.id ?? null;
+				break;
+			}
+			default:
+				return;
+		}
+
+		event.preventDefault();
+		if (target) focusNote(target);
+	}
+
+	function onBoardFocusIn(event: FocusEvent) {
+		const card = (event.target as HTMLElement | null)?.closest('[data-note-card]');
+		const id = card?.getAttribute('data-note-card');
+		if (id) activeId = id;
+	}
+
 	function announce(note: Note, column: ColumnId | undefined, phase: DragPhase): string {
 		const title = noteTitle(note);
 		const name = columns.find((entry) => entry.id === column)?.name ?? t.unfiled;
@@ -136,11 +225,14 @@
 	Columns are full height rather than content height, so the empty space below a
 	short column is still somewhere you can drop a note.
 -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
 	bind:this={board}
 	class="h-full scroll-slim overflow-x-auto overflow-y-hidden"
 	role="list"
 	aria-label={t.board}
+	onkeydown={onBoardKeydown}
+	onfocusin={onBoardFocusIn}
 >
 	<div bind:this={row} class="flex h-full min-h-0 items-stretch gap-2 px-2 pb-3">
 		{#each columns as column (key(column.id))}
@@ -176,6 +268,7 @@
 								{onselect}
 								dragging={drag.note?.id === note.id}
 								suppressClick={() => drag.justDropped()}
+								active={note.id === active?.note}
 								onhandledown={(event, dragged) =>
 									drag.start(event, dragged, { geometry, announce })}
 							/>

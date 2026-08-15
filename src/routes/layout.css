@@ -510,6 +510,17 @@
 .note-wikilink:hover {
 	background: color-mix(in oklab, var(--note-accent) 12%, transparent);
 }
+/* A link to a title no note has. Muted and dashed rather than red: it is an
+   invitation to write that note, and clicking it does exactly that. Both colour
+   and border change, so it does not rely on colour alone to be legible. */
+.note-wikilink.is-unresolved {
+	color: var(--muted-foreground);
+	border-bottom-style: dashed;
+	border-bottom-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+.note-wikilink.is-unresolved:hover {
+	background: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
+}
 
 /* Voice clips: audio and the words that were said, together. */
 .note-voice {

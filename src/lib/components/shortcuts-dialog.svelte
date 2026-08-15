@@ -15,6 +15,10 @@
 		search: string;
 		dictate: string;
 		escape: string;
+		walkList: string;
+		openNote: string;
+		listEnds: string;
+		palette: string;
 	}> = {
 		en: {
 			title: 'Keyboard shortcuts',
@@ -22,7 +26,11 @@
 			newNote: 'New note',
 			search: 'Search notes',
 			dictate: 'Start / stop dictation',
-			escape: 'Stop dictation, or clear search'
+			escape: 'Stop dictation, or clear search',
+			walkList: 'Move through the note list',
+			openNote: 'Open the highlighted note',
+			listEnds: 'Jump to the first / last note',
+			palette: 'Command palette'
 		},
 		id: {
 			title: 'Pintasan papan ketik',
@@ -30,15 +38,23 @@
 			newNote: 'Catatan baru',
 			search: 'Cari catatan',
 			dictate: 'Mulai / hentikan dikte',
-			escape: 'Hentikan dikte, atau bersihkan pencarian'
+			escape: 'Hentikan dikte, atau bersihkan pencarian',
+			walkList: 'Berpindah di daftar catatan',
+			openNote: 'Buka catatan yang disorot',
+			listEnds: 'Lompat ke catatan pertama / terakhir',
+			palette: 'Palet perintah'
 		}
 	};
 	const t = $derived(DICT[locale.current]);
 
 	const shortcuts = $derived([
+		{ keys: [mod, 'K'], label: t.palette },
 		{ keys: [mod, 'N'], label: t.newNote },
 		{ keys: [mod, 'F'], label: t.search },
 		{ keys: [mod, '⇧', 'D'], label: t.dictate },
+		{ keys: ['↑', '↓'], label: t.walkList },
+		{ keys: ['↵'], label: t.openNote },
+		{ keys: ['Home', 'End'], label: t.listEnds },
 		{ keys: ['Esc'], label: t.escape }
 	]);
 </script>

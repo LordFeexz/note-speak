@@ -33,7 +33,6 @@ export type Note = {
 	deletedAt: number | null;
 	/** Non-null pins the note above the rest of its folder. */
 	pinnedAt: number | null;
-	tags: string[];
 	/** Non-null means the note is shared and the Yjs doc owns its content. */
 	share: ShareInfo | null;
 	/**

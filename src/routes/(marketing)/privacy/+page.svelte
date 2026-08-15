@@ -31,7 +31,7 @@
 		</thead>
 		<tbody>
 			<tr>
-				<td>Note text, folders, tags, preferences</td>
+				<td>Note text, folders, preferences</td>
 				<td>IndexedDB in your browser, on your device. Never transmitted by us.</td>
 			</tr>
 			<tr>

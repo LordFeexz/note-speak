@@ -28,6 +28,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { notes, workspacePane } from '$lib/stores/notes.svelte';
 	import { workspaces, type WorkspaceRecord } from '$lib/workspace/store.svelte';
+	import { connectionChip } from '$lib/workspace/connection';
 	import { locale } from '$lib/i18n/locale.svelte';
 	import { docHref } from '$lib/docs/nav';
 	import { LANGS, LANG_LABELS } from '$lib/i18n/lang';
@@ -54,6 +55,8 @@
 		workspacesEmpty: string;
 		membersOnline: (n: number) => string;
 		noneOnline: string;
+		connecting: string;
+		connectionLabel: (state: string) => string;
 		linkCopied: string;
 		copyInvite: string;
 		leaveWorkspace: string;
@@ -90,8 +93,10 @@
 			joinWithLink: 'Join with a link',
 			workspacesEmpty:
 				'A shared note list. Nothing is stored on a server, so notes are reachable while a member who has them is online.',
-			membersOnline: (n) => `${n} members online`,
-			noneOnline: 'No other member online',
+			membersOnline: (n) => `${n} online`,
+			noneOnline: 'No one else here',
+			connecting: 'Connecting…',
+			connectionLabel: (state) => `Connection: ${state}`,
 			linkCopied: 'Link copied',
 			copyInvite: 'Copy invite link',
 			leaveWorkspace: 'Leave workspace',
@@ -129,8 +134,10 @@
 			joinWithLink: 'Gabung lewat tautan',
 			workspacesEmpty:
 				'Daftar catatan bersama. Tidak ada yang disimpan di server, jadi catatannya bisa dijangkau selama ada anggota yang memilikinya sedang online.',
-			membersOnline: (n) => `${n} anggota online`,
-			noneOnline: 'Tidak ada anggota lain yang online',
+			membersOnline: (n) => `${n} online`,
+			noneOnline: 'Belum ada orang lain',
+			connecting: 'Menyambung…',
+			connectionLabel: (state) => `Koneksi: ${state}`,
 			linkCopied: 'Tautan disalin',
 			copyInvite: 'Salin tautan undangan',
 			leaveWorkspace: 'Keluar dari ruang kerja',
@@ -203,9 +210,10 @@
 		if (failure) toast.error(t.publishFailed, { description: failure.detail });
 	});
 
-	/** Members reachable right now — the number that decides whether a note opens. */
-	function reachable(id: string): number {
-		return (workspaces.peers[id] ?? 0) + 1;
+	/** Words for a connection state. The colours and the state live in one shared place. */
+	/** Words come from this component's `Dict`; the state and colours are shared. */
+	function connection(id: string) {
+		return connectionChip(id, t);
 	}
 
 	$effect(() => {
@@ -373,6 +381,7 @@
 
 			{#each workspaces.workspaces as workspace (workspace.id)}
 				{@const pane = workspacePane(workspace.id)}
+				{@const state = connection(workspace.id)}
 				<div class="group/ws relative flex items-center">
 					<button
 						type="button"
@@ -383,17 +392,18 @@
 						<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} class="size-4 shrink-0" />
 						<span class="flex-1 truncate text-left">{workspace.name}</span>
 						<!--
-							A coloured dot rather than a word: the state that matters is
-							whether anyone else is reachable, and it changes often enough that
-							a text label would be noise.
+							A dot in the rail, where the row is a target rather than a readout.
+							The words live in `title` and `aria-label`, and the pane header
+							spells the same state out in full — colour is never the only
+							carrier of it.
 						-->
 						<span
-							class="size-1.5 shrink-0 rounded-full {workspaces.status[workspace.id] === 'connected'
-								? 'bg-emerald-500'
-								: 'bg-muted-foreground/40'}"
-							title={workspaces.status[workspace.id] === 'connected'
-								? t.membersOnline(reachable(workspace.id))
-								: t.noneOnline}
+							class="size-1.5 shrink-0 rounded-full {state.tone} {state.pulse
+								? 'animate-pulse'
+								: ''}"
+							title={state.text}
+							aria-label={t.connectionLabel(state.text)}
+							role="img"
 						></span>
 						<span class="text-xs text-muted-foreground tabular-nums">{notes.countIn(pane)}</span>
 					</button>

@@ -5,6 +5,9 @@
 	import { hasFinePointer } from '$lib/motion.svelte';
 	import { toast } from 'svelte-sonner';
 	import { SlashController } from '$lib/editor/slash-controller.svelte';
+	import { LinkController } from '$lib/editor/link-controller.svelte';
+	import { notes } from '$lib/stores/notes.svelte';
+	import { noteTitle } from '$lib/types';
 	import { MEDIA_ACCEPT, prepareMedia, storagePressure, type MediaKind } from '$lib/editor/media';
 	import {
 		mediaErrorMessage,
@@ -13,6 +16,7 @@
 	} from '$lib/editor/media-i18n';
 	import FollowingPointer from './following-pointer.svelte';
 	import BlockMenu from './block-menu.svelte';
+	import LinkMenu from './link-menu.svelte';
 	import {
 		openShareSession,
 		signalingUrl,
@@ -94,6 +98,24 @@
 	// standalone on /s/<docId>, where there is no note editor to borrow one from.
 	let mediaInput = $state<HTMLInputElement | null>(null);
 	let pendingKind: MediaKind | null = null;
+
+	/**
+	 * The same `[[` picker the local editor has.
+	 *
+	 * A shared note is still an ordinary note in this device's list, so linking to
+	 * and from it has to work the same way — the alternative is a feature that
+	 * silently stops existing the moment a note is shared.
+	 */
+	const linkPicker = new LinkController({
+		search: (query) => {
+			const q = query.trim();
+			const matches = notes
+				.searchTitles(q, 6)
+				.map((candidate) => ({ id: candidate.id, title: noteTitle(candidate) }));
+			const exact = matches.some((entry) => entry.title.toLowerCase() === q.toLowerCase());
+			return q && !exact ? [...matches, { id: 'new', title: q }] : matches;
+		}
+	});
 
 	const slash = new SlashController({
 		onNeeds: (block) => {
@@ -216,6 +238,7 @@
 				// guarantee is that peers reject updates they can't verify.
 				editable: opened.role === 'editor',
 				slash: slash.extension(),
+				wikiLink: linkPicker.extension(),
 				onUpdate: (markdown) => {
 					hasContent = true;
 					onmarkdown?.(markdown);
@@ -346,3 +369,8 @@
 <input bind:this={mediaInput} type="file" class="hidden" onchange={onMediaPicked} />
 
 <BlockMenu slash={slash.state} selected={slash.index} onselect={(block) => slash.select(block)} />
+<LinkMenu
+	link={linkPicker.state}
+	selected={linkPicker.index}
+	onselect={(candidate) => linkPicker.select(candidate)}
+/>

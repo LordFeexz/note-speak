@@ -34,6 +34,7 @@
 	import NoteCard from './note-card.svelte';
 	import NoteBoard from './note-board.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
+	import { connectionChip, connectionOf } from '$lib/workspace/connection';
 	import { locale } from '$lib/i18n/locale.svelte';
 	import type { Dict } from '$lib/i18n/dict';
 
@@ -45,6 +46,9 @@
 		allNotes: string;
 		notes: string;
 		showFolders: string;
+		membersOnline: (n: number) => string;
+		noneOnline: string;
+		connecting: string;
 		empty: string;
 		sortBy: (label: string) => string;
 		sortGroup: string;
@@ -81,6 +85,9 @@
 			allNotes: 'All Notes',
 			notes: 'Notes',
 			showFolders: 'Show folders',
+			membersOnline: (n) => `${n} online`,
+			noneOnline: 'No one else here',
+			connecting: 'Connecting…',
 			empty: 'Empty',
 			sortBy: (label) => `Sort notes by ${label}`,
 			sortGroup: 'Sort by',
@@ -125,6 +132,9 @@
 			allNotes: 'Semua Catatan',
 			notes: 'Catatan',
 			showFolders: 'Tampilkan folder',
+			membersOnline: (n) => `${n} online`,
+			noneOnline: 'Belum ada orang lain',
+			connecting: 'Menyambung…',
 			empty: 'Kosongkan',
 			sortBy: (label) => `Urutkan catatan menurut ${label}`,
 			sortGroup: 'Urutkan menurut',
@@ -259,8 +269,13 @@
 	 * layout change instead of tearing every row down and rebuilding it.
 	 */
 	const rendered = $derived.by(() => {
-		if (effective !== 'grouped') return list.map((note) => ({ kind: 'note' as const, note }));
-		const out: ({ kind: 'note'; note: Note } | { kind: 'header'; label: string })[] = [];
+		if (effective !== 'grouped')
+			return list.map((note, index) => ({ kind: 'note' as const, note, index }));
+		const out: ({ kind: 'note'; note: Note; index: number } | { kind: 'header'; label: string })[] =
+			[];
+		// Note entries carry their own running index, so the group headers woven in
+		// below never shift the index space the keyboard walks.
+		let index = 0;
 		// Today's boundary, computed once rather than per note. Constructed rather
 		// than mutated with `setHours`, which would make it a mutable Date.
 		const today = new Date();
@@ -272,10 +287,132 @@
 				out.push({ kind: 'header', label: group });
 				current = group;
 			}
-			out.push({ kind: 'note', note });
+			out.push({ kind: 'note', note, index: index++ });
 		}
 		return out;
 	});
+
+	/**
+	 * Keyboard navigation of the list.
+	 *
+	 * A roving tabindex rather than `role="listbox"`: each row holds two focusable
+	 * controls — the card and its ⋯ menu — and an `option` containing a button is
+	 * not valid ARIA. So the list keeps ordinary buttons and moves focus itself.
+	 *
+	 * The handler lives on the `<ul>`, never on `window`. Scoping it here is what
+	 * keeps arrow keys from firing while you are typing in the editor or the search
+	 * box — a window handler would have to guess at that, and guess wrong.
+	 */
+	let listEl = $state<HTMLElement | null>(null);
+	let activeIndex = $state(0);
+
+	// The list shrinks under you — a search, a delete, switching to Trash. An index
+	// past the end must fall back to the last note rather than focusing nothing.
+	$effect(() => {
+		if (activeIndex > list.length - 1) activeIndex = Math.max(0, list.length - 1);
+	});
+
+	function cardButtons(): HTMLElement[] {
+		return listEl ? [...listEl.querySelectorAll<HTMLElement>('[data-card-button]')] : [];
+	}
+
+	function focusCard(index: number) {
+		const buttons = cardButtons();
+		const target = buttons[Math.max(0, Math.min(index, buttons.length - 1))];
+		if (!target) return;
+		activeIndex = buttons.indexOf(target);
+		target.focus();
+		target.scrollIntoView({ block: 'nearest' });
+	}
+
+	/** Cards per row, so ↑/↓ in the grid move by a visual row and not by one card. */
+	function columns(): number {
+		if (effective !== 'grid' || !listEl) return 1;
+		const template = getComputedStyle(listEl).gridTemplateColumns;
+		return Math.max(1, template.split(' ').filter(Boolean).length);
+	}
+
+	function onListKeydown(event: KeyboardEvent) {
+		// Let the ⋯ menu, and anything else that opens over the list, have its keys.
+		if (event.altKey || event.ctrlKey || event.metaKey) return;
+		const step = columns();
+		const last = cardButtons().length - 1;
+		// Every branch below either assigns or returns, so no initial value is needed.
+		let next: number;
+
+		switch (event.key) {
+			case 'ArrowDown':
+				next = activeIndex + step;
+				// A partial last row would otherwise trap you one row short of the end.
+				if (next > last) next = last;
+				break;
+			case 'ArrowUp':
+				next = activeIndex - step;
+				if (next < 0) next = 0;
+				break;
+			case 'ArrowRight':
+				if (effective !== 'grid') return;
+				next = activeIndex + 1;
+				break;
+			case 'ArrowLeft':
+				if (effective !== 'grid') return;
+				next = activeIndex - 1;
+				break;
+			case 'Home':
+				next = 0;
+				break;
+			case 'End':
+				next = last;
+				break;
+			default:
+				return;
+		}
+
+		// Enter needs no case of its own: a focused `<button>` already fires click.
+		event.preventDefault();
+		focusCard(next);
+	}
+
+	/**
+	 * Keep `activeIndex` on whatever actually has focus.
+	 *
+	 * Clicking a card, tabbing in, or focusing one programmatically all land here,
+	 * so arrow keys always continue from where you are rather than from where the
+	 * list last thought you were.
+	 */
+	function onListFocusIn(event: FocusEvent) {
+		const button = (event.target as HTMLElement | null)?.closest('[data-card-button]');
+		if (!button) return;
+		const index = cardButtons().indexOf(button as HTMLElement);
+		if (index !== -1) activeIndex = index;
+	}
+
+	/** Words for a connection state; the colours and the state itself are shared. */
+	/** Words come from this component's `Dict`; the state and colours are shared. */
+	function connection(id: string) {
+		return connectionChip(id, t);
+	}
+
+	/**
+	 * ↓ from the search box walks into the list — where you were heading anyway.
+	 *
+	 * The board renders its own component instead of the `<ul>`, so there is no
+	 * `listEl` to walk; its first card is focused directly. Without that branch
+	 * this swallowed the key and did nothing at all in board layout, which is
+	 * worse than leaving the default alone.
+	 */
+	function onSearchKeydown(event: KeyboardEvent) {
+		if (event.key !== 'ArrowDown' || list.length === 0) return;
+		if (effective === 'board') {
+			const first = document.querySelector<HTMLElement>('[data-note-card] [data-card-button]');
+			if (!first) return;
+			event.preventDefault();
+			first.focus();
+			return;
+		}
+		event.preventDefault();
+		focusCard(activeIndex);
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col glass">
@@ -286,7 +423,26 @@
 					<HugeiconsIcon icon={Menu01Icon} strokeWidth={2} />
 				</Button>
 			{/if}
-			<h2 class="flex-1 truncate text-sm font-semibold">{heading}</h2>
+			<h2 class="truncate text-sm font-semibold">{heading}</h2>
+			{#if workspace}
+				<!--
+					Spelled out here, not just as a dot in the rail. This is the pane
+					someone is looking at while wondering whether the app is broken, and
+					"Connecting…" answers that where a grey dot does not.
+				-->
+				{@const state = connection(workspace.id)}
+				<span
+					data-connection={state.key}
+					class="flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground"
+				>
+					<span
+						class="size-1.5 shrink-0 rounded-full {state.tone} {state.pulse ? 'animate-pulse' : ''}"
+						aria-hidden="true"
+					></span>
+					{state.text}
+				</span>
+			{/if}
+			<span class="flex-1"></span>
 			{#if isTrash}
 				{#if list.length > 0}
 					<Button variant="ghost" size="sm" onclick={() => (confirmEmptyTrash = true)}
@@ -375,6 +531,7 @@
 				placeholder={t.searchPlaceholder}
 				aria-label={t.searchLabel}
 				class="h-9 pl-8"
+				onkeydown={onSearchKeydown}
 			/>
 			{#if notes.query}
 				<Button
@@ -440,8 +597,14 @@
 									workspace, and one whose members are all offline. Saying both is
 									the only accurate option.
 								-->
-									{#if workspaces.status[workspace.id] === 'connected'}
+									<!-- Read through `connectionOf`, the same source the header chip uses:
+									     testing `status` here directly made the two disagree, so the header
+									     could say "Connecting…" while this text already asserted everyone
+									     was offline. -->
+									{#if connectionOf(workspace.id).key === 'connected'}
 										{t.workspaceEmpty}
+									{:else if connectionOf(workspace.id).key === 'connecting'}
+										{t.connecting}
 									{:else}
 										{t.workspaceOffline}
 									{/if}
@@ -473,7 +636,13 @@
 					a layout change, which kills the FLIP animation that makes reordering
 					readable.
 				-->
-				<ul class={listClass}>
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+				<ul
+					bind:this={listEl}
+					class={listClass}
+					onkeydown={onListKeydown}
+					onfocusin={onListFocusIn}
+				>
 					<!--
 						`animate:flip` has to sit on the only child of the keyed block, so the
 						header/note branch lives inside the `<li>` rather than around it.
@@ -494,6 +663,7 @@
 									layout={effective}
 									{isTrash}
 									{onselect}
+									active={entry.index === activeIndex}
 								/>
 							{/if}
 						</li>

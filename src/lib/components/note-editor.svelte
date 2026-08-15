@@ -23,10 +23,12 @@
 	import { notes } from '$lib/stores/notes.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
 	import { speech } from '$lib/stores/speech.svelte';
+	import { micPermissionGranted } from '$lib/speech/permission';
 	import { dur } from '$lib/motion.svelte';
 	import { createNoteEditor, getMarkdown, setMarkdown, toContent } from '$lib/editor/create';
 	import { setInterim } from '$lib/editor/interim';
 	import { SlashController } from '$lib/editor/slash-controller.svelte';
+	import { LinkController } from '$lib/editor/link-controller.svelte';
 	import { BLOCKS, activeBlock, type BlockDef } from '$lib/editor/blocks';
 	import { blockTitle, groupLabel } from '$lib/editor/blocks-i18n';
 	import { locale } from '$lib/i18n/locale.svelte';
@@ -40,10 +42,12 @@
 	import VoiceRecorderBar from './voice-recorder.svelte';
 	import { recordingSupported } from '$lib/editor/recorder.svelte';
 	import BlockMenu from './block-menu.svelte';
+	import LinkMenu from './link-menu.svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { noteTitle, type Note } from '$lib/types';
 	import DictationButton from './dictation-button.svelte';
 	import ShareDialog from './share-dialog.svelte';
+	import MicExplainer from './mic-explainer.svelte';
 	import CollabEditor from './collab-editor.svelte';
 	import type { Identity } from '$lib/share/session';
 
@@ -82,6 +86,7 @@
 		dictationStopped: string;
 		typingTookOver: string;
 		blockInserted: string;
+		linkInserted: string;
 		speechErrors: Record<SpeechErrorCode, string>;
 	}> = {
 		en: {
@@ -121,6 +126,7 @@
 			dictationStopped: 'Dictation stopped',
 			typingTookOver: 'Typing takes over from your voice.',
 			blockInserted: 'A block was inserted.',
+			linkInserted: 'A link was inserted.',
 			speechErrors: {
 				'mic-blocked':
 					'Microphone access was blocked. Allow it in your browser settings to dictate.',
@@ -169,6 +175,7 @@
 			dictationStopped: 'Dikte dihentikan',
 			typingTookOver: 'Ketikan mengambil alih dari suara Anda.',
 			blockInserted: 'Sebuah blok disisipkan.',
+			linkInserted: 'Sebuah tautan disisipkan.',
 			speechErrors: {
 				'mic-blocked':
 					'Akses mikrofon diblokir. Izinkan lewat pengaturan browser untuk bisa mendikte.',
@@ -235,6 +242,63 @@
 	const slash = new SlashController({
 		onBeforeSelect: () => stopDictationForEdit(t.blockInserted),
 		onNeeds: (block) => runBlock(block)
+	});
+
+	/**
+	 * Mark wiki-links whose target does not exist.
+	 *
+	 * The node itself cannot decide this: it is a ProseMirror node with no idea
+	 * what a note is, which is what keeps the editor free of the store. So the
+	 * resolving happens here, against the live note list, and only the class is
+	 * written back onto the rendered elements.
+	 *
+	 * It re-runs on `revision` — every transaction, so a link becomes resolved as
+	 * soon as you finish typing its title — and on `activeNotes`, so creating or
+	 * renaming a note updates links pointing at it without touching this document.
+	 *
+	 * The title set is built once per run rather than asking the store per link.
+	 * `titleExists` walks every note and splits every body to derive a title, so
+	 * per-link lookups made this O(links × notes) *on every keystroke* — twenty
+	 * links in a thousand-note library was twenty thousand body splits a stroke.
+	 *
+	 * Scoped to `.tiptap` across the document rather than to `host`, because a
+	 * shared note renders in the collaborative editor instead and its links need
+	 * the same treatment.
+	 */
+	$effect(() => {
+		void revision;
+		const links = document.querySelectorAll<HTMLElement>('.tiptap .note-wikilink');
+		// Nothing to resolve, so do not read `activeNotes` at all — that read both
+		// costs a pass over every note and subscribes this effect to every note
+		// change, which made writing in a link-free note pay for the whole library.
+		if (links.length === 0) return;
+		const titles = new Set(notes.activeNotes.map((n) => noteTitle(n).toLowerCase()));
+		for (const el of links) {
+			const title = (el.getAttribute('data-wikilink') ?? '').trim().toLowerCase();
+			el.classList.toggle('is-unresolved', !titles.has(title));
+		}
+	});
+
+	/**
+	 * The `[[` picker searches note titles, and always offers the query itself as
+	 * a note that does not exist yet — linking forward to an unwritten note is the
+	 * point of wiki links, not an edge case.
+	 */
+	const link = new LinkController({
+		onBeforeSelect: () => stopDictationForEdit(t.linkInserted),
+		search: (query) => {
+			const q = query.trim();
+			// `searchTitles`, not `searchNotes`: the limit has to be applied to title
+			// matches. Taking the top six *body* matches and filtering those down to
+			// titles loses the note you meant as soon as six others mention the word.
+			const matches = notes
+				.searchTitles(q, 6)
+				.map((candidate) => ({ id: candidate.id, title: noteTitle(candidate) }));
+			// Never offer to create a title that already exists — that row would make
+			// a second note with the same name, and the link would then be ambiguous.
+			const exact = matches.some((entry) => entry.title.toLowerCase() === q.toLowerCase());
+			return q && !exact ? [...matches, { id: 'new', title: q }] : matches;
+		}
 	});
 
 	const basicBlocks = BLOCKS.filter((block) => block.group === 'basic');
@@ -379,7 +443,8 @@
 				// stay current without them opening the note. No-ops unless it changed.
 				workspaces.touchTitle(note);
 			},
-			slash: slash.extension()
+			slash: slash.extension(),
+			wikiLink: link.extension()
 		});
 		loadedId = note?.id ?? null;
 		// Transactions include selection moves, which is exactly when the toolbar
@@ -520,14 +585,26 @@
 		commitSpan();
 	}
 
-	export function toggleDictation() {
+	export async function toggleDictation() {
 		if (!speech.supported) {
 			toast.error(speech.unsupportedReason === 'insecure-context' ? t.needsSecure : t.noSpeech);
 			return;
 		}
-		if (speech.listening) stopDictation();
-		else startDictation();
+		if (speech.listening) {
+			stopDictation();
+			return;
+		}
+		// Explain once, before the browser's own prompt — but never in the way of
+		// someone who has already granted the microphone, and never twice.
+		if (!notes.prefs.micExplainerSeen && !(await micPermissionGranted())) {
+			notes.setPref('micExplainerSeen', true);
+			micExplainerOpen = true;
+			return;
+		}
+		startDictation();
 	}
+
+	let micExplainerOpen = $state(false);
 
 	export function focusEditor() {
 		target()?.commands.focus();
@@ -894,6 +971,8 @@
 
 <ShareDialog bind:open={shareOpen} {note} />
 
+<MicExplainer bind:open={micExplainerOpen} oncontinue={startDictation} />
+
 <HistoryPanel
 	bind:open={historyOpen}
 	{note}
@@ -909,3 +988,8 @@
 
 <!-- Rendered outside the editor's overflow container so it is never clipped. -->
 <BlockMenu slash={slash.state} selected={slash.index} onselect={(block) => slash.select(block)} />
+<LinkMenu
+	link={link.state}
+	selected={link.index}
+	onselect={(candidate) => link.select(candidate)}
+/>

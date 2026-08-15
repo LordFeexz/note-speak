@@ -10,7 +10,7 @@ const PREFS_KEY = 'note-speak:prefs';
 const SCHEMA_KEY = 'note-speak:schema';
 
 /** Bump when `Note` gains a field, and add a step to `migrate()`. */
-const CURRENT_SCHEMA = 2;
+const CURRENT_SCHEMA = 3;
 
 /** Folder ids of the form `ws:<workspaceId>` select a workspace, not a folder. */
 export const WORKSPACE_PREFIX = 'ws:';
@@ -28,6 +28,15 @@ function paneWorkspaceId(folderId: string | null | 'trash'): string | null {
 type Prefs = {
 	/** User dismissed the "voice not supported on this browser" banner. */
 	speechBannerDismissed?: boolean;
+	/**
+	 * The pre-permission microphone explainer has been shown once.
+	 *
+	 * Its own flag rather than something derived from permission state: a browser
+	 * that reports `prompt` forever (Firefox and Safari do not all implement the
+	 * microphone descriptor) would otherwise show the dialog before every single
+	 * dictation.
+	 */
+	micExplainerSeen?: boolean;
 	/** BCP-47 tag last used for dictation. */
 	speechLang?: string;
 	/** Map spoken tokens like "titik"/"period" to punctuation while dictating. */
@@ -103,12 +112,11 @@ const RECENT_LANG_LIMIT = 3;
 function migrate(raw: Note[], from: number): Note[] {
 	let notes = raw;
 	if (from < 1) {
-		// v0 predates sharing, pinning and tags; absent fields are not "empty",
+		// v0 predates sharing and pinning; absent fields are not "empty",
 		// they simply never existed, so backfill rather than trusting defaults.
 		notes = notes.map((note) => ({
 			...note,
 			pinnedAt: note.pinnedAt ?? null,
-			tags: note.tags ?? [],
 			share: note.share ?? null
 		}));
 	}
@@ -116,6 +124,19 @@ function migrate(raw: Note[], from: number): Note[] {
 		// v1 predates workspaces. `null` and absent mean the same thing here, but
 		// writing it makes the field present in storage rather than implied.
 		notes = notes.map((note) => ({ ...note, workspaceId: note.workspaceId ?? null }));
+	}
+	if (from < 3) {
+		// v2 still carried `tags`: declared on `Note`, written as `[]` everywhere and
+		// read nowhere. Dropping it from the type is not enough — every note already
+		// in storage would keep the key forever and each flush would write it back
+		// out, so an imported note and a lived-in one would have different shapes.
+		// The import path strips it too (`transfer.ts`); this is the same rule
+		// applied to notes that never left.
+		notes = notes.map((note) => {
+			const { tags: _dropped, ...rest } = note as Note & { tags?: unknown };
+			void _dropped;
+			return rest as Note;
+		});
 	}
 	return notes;
 }
@@ -178,7 +199,23 @@ class NotesStore {
 		return text;
 	}
 
-	async load() {
+	/**
+	 * The load in flight, so concurrent callers share one.
+	 *
+	 * `loaded` alone only guards callers that arrive *after* it finishes. Child
+	 * components mount before their page, so the editor asking for an identity and
+	 * the page loading notes both start before either completes — and two loads
+	 * running at once race to seed the welcome note and to write prefs.
+	 */
+	#loading: Promise<void> | null = null;
+
+	load(): Promise<void> {
+		if (this.loaded) return Promise.resolve();
+		this.#loading ??= this.#load().finally(() => (this.#loading = null));
+		return this.#loading;
+	}
+
+	async #load() {
 		if (this.loaded) return;
 		// Before anything else: the welcome note below is seeded once, in whatever
 		// language is current at that moment. `onMount` fires child-first, so a
@@ -191,7 +228,11 @@ class NotesStore {
 			get<number>(SCHEMA_KEY)
 		]);
 		this.folders = folders ?? [];
-		this.prefs = prefs ?? {};
+		// Anything written while this load was in flight wins over the snapshot that
+		// came back from storage. `#writePrefs` has already merged that write onto
+		// disk; assigning the pre-write snapshot here would drop it from memory, and
+		// the next `setPref` would then persist the stale object back over it.
+		this.prefs = { ...(prefs ?? {}), ...this.prefs };
 		if (notes) {
 			// An explicitly emptied list stays empty — only a *missing* key seeds.
 			const from = schema ?? 0;
@@ -211,7 +252,6 @@ class NotesStore {
 					updatedAt: now,
 					deletedAt: null,
 					pinnedAt: null,
-					tags: [],
 					share: null
 				}
 			];
@@ -246,7 +286,28 @@ class NotesStore {
 
 	setPref<K extends keyof Prefs>(key: K, value: Prefs[K]) {
 		this.prefs = { ...this.prefs, [key]: value };
-		void set(PREFS_KEY, $state.snapshot(this.prefs));
+		void this.#writePrefs();
+	}
+
+	/**
+	 * Persist preferences without ever erasing the ones already stored.
+	 *
+	 * Until `load()` resolves, `this.prefs` is `{}` — so writing that snapshot
+	 * straight out would wipe every saved preference on disk. Anything that writes
+	 * a pref during startup would silently destroy the rest, which is precisely
+	 * what was happening to the collaborator identity and the dictation language.
+	 *
+	 * Merging over what is on disk makes the write safe from any caller at any
+	 * time, rather than relying on every caller to wait first.
+	 */
+	async #writePrefs() {
+		const pending = $state.snapshot(this.prefs);
+		if (this.loaded) {
+			await set(PREFS_KEY, pending);
+			return;
+		}
+		const stored = (await get<Prefs>(PREFS_KEY)) ?? {};
+		await set(PREFS_KEY, { ...stored, ...pending });
 	}
 
 	// ---- notes ----
@@ -261,7 +322,6 @@ class NotesStore {
 			updatedAt: now,
 			deletedAt: null,
 			pinnedAt: null,
-			tags: [],
 			share: null,
 			workspaceId: null
 		};
@@ -313,7 +373,6 @@ class NotesStore {
 				updatedAt: updatedAt || now,
 				deletedAt: null,
 				pinnedAt: null,
-				tags: [],
 				share: { ...share },
 				workspaceId
 			},
@@ -472,6 +531,39 @@ class NotesStore {
 		return this.activeNotes.filter((n) => n.folderId === folderId).length;
 	}
 
+	/**
+	 * Active notes matching a one-off query, most recently edited first.
+	 *
+	 * Separate from `listFor`, which filters by the *persistent* `query` the search
+	 * box owns — the command palette needs to search without touching that, or
+	 * opening the palette would silently re-filter the list behind it. Both share
+	 * `#searchText`, so they also share one cache.
+	 */
+	searchNotes(query: string, limit = 8): Note[] {
+		const q = query.trim().toLowerCase();
+		const base = [...this.activeNotes].sort((a, b) => b.updatedAt - a.updatedAt);
+		if (!q) return base.slice(0, limit);
+		return base
+			.filter((n) => noteTitle(n).toLowerCase().includes(q) || this.#searchText(n).includes(q))
+			.slice(0, limit);
+	}
+
+	/**
+	 * Notes whose *title* matches, most recently edited first.
+	 *
+	 * Separate from `searchNotes`, which also matches body text. A `[[` link
+	 * picker offers titles, so it has to limit the title matches — filtering a
+	 * body-matched top-N down to titles afterwards silently drops the note you
+	 * were looking for whenever enough other notes merely mention the word.
+	 */
+	searchTitles(query: string, limit = 6): Note[] {
+		const q = query.trim().toLowerCase();
+		const matches = q
+			? this.activeNotes.filter((note) => noteTitle(note).toLowerCase().includes(q))
+			: [...this.activeNotes];
+		return matches.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+	}
+
 	/** Notes for the current folder, filtered by the search query, newest first. */
 	listFor(folderId: string | null | 'trash'): Note[] {
 		const workspaceId = paneWorkspaceId(folderId);
@@ -522,6 +614,11 @@ class NotesStore {
 	 * reload. Never leaves the device except as presence inside a share.
 	 */
 	async identity(): Promise<{ name: string; color: string }> {
+		// Wait for storage before deciding there is no identity yet. This is called
+		// from the editor's `onMount`, which fires long before `load()` resolves —
+		// so without this it read an empty `prefs`, invented a fresh identity, and
+		// wrote it, giving collaborators a new name on every single launch.
+		await this.load();
 		if (this.prefs.identity) return this.prefs.identity;
 		const { makeIdentity } = await import('$lib/share/session');
 		const identity = makeIdentity();
@@ -533,21 +630,49 @@ class NotesStore {
 	 * Notes linking to a given title.
 	 *
 	 * Derived, never stored: a stored index would go stale the moment a note is
-	 * renamed or edited, and this is cheap enough to compute — the scan is over
-	 * link syntax, not note bodies.
+	 * renamed or edited.
+	 *
+	 * The per-note link scan *is* cached, though — it runs a regex over the whole
+	 * body, and this is called from a `$derived` in the editor, so without the
+	 * cache every keystroke rescanned every note in the workspace. Keyed by body,
+	 * like `#searchCache`, so an edit invalidates its own entry and nothing else.
 	 */
+	#linkCache = new Map<string, { body: string; titles: string[] }>();
+
+	#linksIn(note: Note): string[] {
+		const cached = this.#linkCache.get(note.id);
+		if (cached?.body === note.body) return cached.titles;
+		const titles = linkedTitles(note.body).map((title) => title.toLowerCase());
+		this.#linkCache.set(note.id, { body: note.body, titles });
+		return titles;
+	}
+
 	backlinksTo(title: string): Note[] {
 		const target = title.trim().toLowerCase();
 		if (!target) return [];
-		return this.activeNotes.filter((note) =>
-			linkedTitles(note.body).some((linked) => linked.toLowerCase() === target)
-		);
+		return this.activeNotes.filter((note) => this.#linksIn(note).includes(target));
 	}
 
 	/** Resolve a wiki-link title to a note, case-insensitively. */
 	findByTitle(title: string): Note | undefined {
 		const target = title.trim().toLowerCase();
-		return this.activeNotes.find((note) => noteTitle(note).toLowerCase() === target);
+		if (!target) return undefined;
+		// Titles come from the first line of a body, so two notes can easily share
+		// one. Picking the first match would mean following `[[Groceries]]` lands
+		// wherever `activeNotes` happens to order them — which looks random in use
+		// and changes under you. Most recently edited is at least a rule someone
+		// can predict, and it is the copy you were most likely thinking of.
+		let best: Note | undefined;
+		for (const note of this.activeNotes) {
+			if (noteTitle(note).toLowerCase() !== target) continue;
+			if (!best || note.updatedAt > best.updatedAt) best = note;
+		}
+		return best;
+	}
+
+	/** Whether a wiki-link title resolves, for styling links that do not. */
+	titleExists(title: string): boolean {
+		return this.findByTitle(title) !== undefined;
 	}
 
 	/** Record a dictation language so the quick-switch can offer it. */

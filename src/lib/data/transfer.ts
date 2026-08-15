@@ -160,10 +160,16 @@ export function parseBackup(text: string): Backup {
  * than trusting the file — an old export must not reintroduce a v0 note.
  */
 function normalize(note: Note): Note {
+	// `tags` was declared on `Note`, written as `[]` in every creation path and
+	// read nowhere, so it was removed. Old backups still carry it and must still
+	// restore — but stripping it here rather than letting the spread carry it
+	// through is the point: a dead field written back into storage is exactly the
+	// thing that later gets mistaken for a working one.
+	const { tags: _dropped, ...rest } = note as Note & { tags?: unknown };
+	void _dropped;
 	return {
-		...note,
+		...rest,
 		pinnedAt: note.pinnedAt ?? null,
-		tags: Array.isArray(note.tags) ? note.tags : [],
 		share: note.share ?? null,
 		deletedAt: note.deletedAt ?? null
 	};

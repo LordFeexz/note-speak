@@ -55,7 +55,7 @@ const DirectiveSupport = Extension.create({
  * note was shared — silently, and with no way to get the content back.
  */
 export function baseExtensions(
-	options: { collaborative?: boolean; slash?: AnyExtension } = {}
+	options: { collaborative?: boolean; slash?: AnyExtension; wikiLink?: AnyExtension } = {}
 ): AnyExtension[] {
 	return [
 		StarterKit.configure({
@@ -121,7 +121,8 @@ export function baseExtensions(
 		}),
 		DirectiveSupport,
 		DictationInterim,
-		...(options.slash ? [options.slash] : [])
+		...(options.slash ? [options.slash] : []),
+		...(options.wikiLink ? [options.wikiLink] : [])
 	];
 }
 
@@ -140,12 +141,13 @@ export function createNoteEditor(options: {
 	onUpdate: (markdown: string) => void;
 	onCreate?: () => void;
 	slash?: AnyExtension;
+	wikiLink?: AnyExtension;
 }): Editor {
 	return new Editor({
 		element: options.element,
 		content: normalizeListMarkers(options.content),
 		editable: options.editable,
-		extensions: baseExtensions({ slash: options.slash }),
+		extensions: baseExtensions({ slash: options.slash, wikiLink: options.wikiLink }),
 		editorProps: {
 			attributes: {
 				class: 'note-prose focus:outline-none',
@@ -244,12 +246,13 @@ export function createSharedEditor(options: {
 	editable: boolean;
 	onUpdate: (markdown: string) => void;
 	slash?: AnyExtension;
+	wikiLink?: AnyExtension;
 }): Editor {
 	return new Editor({
 		element: options.element,
 		editable: options.editable,
 		extensions: [
-			...baseExtensions({ collaborative: true, slash: options.slash }),
+			...baseExtensions({ collaborative: true, slash: options.slash, wikiLink: options.wikiLink }),
 			Collaboration.configure({ fragment: options.fragment as never }),
 			CollaborationCaret.configure({
 				provider: { awareness: options.awareness } as never,

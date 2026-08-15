@@ -5,6 +5,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { toast } from 'svelte-sonner';
+	import { toggleMode } from 'mode-watcher';
 
 	import * as Resizable from '$lib/components/ui/resizable';
 	import * as Sheet from '$lib/components/ui/sheet';
@@ -12,9 +13,17 @@
 	import NoteList from '$lib/components/note-list.svelte';
 	import NoteEditor from '$lib/components/note-editor.svelte';
 	import ShortcutsDialog from '$lib/components/shortcuts-dialog.svelte';
-	import { notes, effectiveLayout, isWideLayout, WORKSPACE_PREFIX } from '$lib/stores/notes.svelte';
+	import CommandPalette from '$lib/components/command-palette.svelte';
+	import {
+		notes,
+		effectiveLayout,
+		isWideLayout,
+		workspacePane,
+		WORKSPACE_PREFIX
+	} from '$lib/stores/notes.svelte';
 	import { workspaces } from '$lib/workspace/store.svelte';
 	import { speech } from '$lib/stores/speech.svelte';
+	import { micPermissionGranted } from '$lib/speech/permission';
 	import { isCompact, dur } from '$lib/motion.svelte';
 	import { trackViewportHeight } from '$lib/viewport.svelte';
 	import { history } from '$lib/history/store.svelte';
@@ -52,6 +61,7 @@
 	let view = $state<'list' | 'editor'>('list');
 	let foldersSheetOpen = $state(false);
 	let shortcutsOpen = $state(false);
+	let paletteOpen = $state(false);
 
 	let editor = $state<ReturnType<typeof NoteEditor> | null>(null);
 	let searchRef = $state<HTMLInputElement | null>(null);
@@ -171,6 +181,31 @@
 		view = 'editor';
 	}
 
+	/**
+	 * Open a note from anywhere, moving the list pane to wherever it lives.
+	 *
+	 * The command palette searches every active note, so a result is often in a
+	 * different folder than the one on screen. Setting `noteId` alone would leave
+	 * the editor showing a note the list does not contain — nothing highlighted,
+	 * arrow keys walking a different set, and Back on a phone returning to a list
+	 * without it.
+	 */
+	function openNoteAnywhere(id: string) {
+		const note = notes.getNote(id);
+		if (note) {
+			const pane = note.workspaceId
+				? workspacePane(note.workspaceId)
+				: note.deletedAt !== null
+					? 'trash'
+					: note.folderId;
+			if (pane !== folderId) {
+				folderId = pane;
+				notes.query = '';
+			}
+		}
+		selectNote(id);
+	}
+
 	function createNote(body = '') {
 		if (folderId === 'trash') folderId = null;
 		notes.query = '';
@@ -211,16 +246,7 @@
 		// `start()` needs user activation, and a shortcut launch isn't a gesture.
 		// Chrome often allows it once mic permission is granted, so try — but never
 		// leave a note that promised to be listening and silently isn't.
-		let granted = false;
-		try {
-			const status = await navigator.permissions.query({
-				name: 'microphone' as PermissionName
-			});
-			granted = status.state === 'granted';
-		} catch {
-			// Safari and Firefox don't expose the microphone descriptor at all.
-		}
-		if (granted) editor?.toggleDictation();
+		if (await micPermissionGranted()) editor?.toggleDictation();
 
 		setTimeout(() => {
 			if (speech.listening) return;
@@ -264,7 +290,20 @@
 			searchRef?.select();
 			return;
 		}
+		if (mod && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			paletteOpen = !paletteOpen;
+			return;
+		}
 		if (event.key === 'Escape') {
+			// Dismissing an overlay must be the *only* thing that Escape does, or
+			// closing the palette would also stop dictation and clear the search box.
+			//
+			// `defaultPrevented` rather than `paletteOpen`: this runs on `window`, so
+			// every handler closer to the target — including the dialog's, which lives
+			// on `document` — has already run and set `paletteOpen` back to false. The
+			// flag is always stale here; the prevented default is not.
+			if (event.defaultPrevented || paletteOpen) return;
 			if (speech.listening) editor?.toggleDictation();
 			else if (notes.query) notes.query = '';
 		}
@@ -378,3 +417,21 @@
 </main>
 
 <ShortcutsDialog bind:open={shortcutsOpen} />
+
+<CommandPalette
+	bind:open={paletteOpen}
+	context={{
+		createNote: () => createNote(),
+		selectFolder,
+		selectNote: openNoteAnywhere,
+		openShortcuts: () => (shortcutsOpen = true),
+		// Both are replaced by the palette's own dialog instances; see the comment
+		// there. They are in the type because the context describes the whole surface.
+		openBackup: () => {},
+		openNewFolder: () => {},
+		toggleDictation: () => editor?.toggleDictation(),
+		toggleTheme: toggleMode,
+		speechSupported: speech.supported,
+		listening: speech.listening
+	}}
+/>
