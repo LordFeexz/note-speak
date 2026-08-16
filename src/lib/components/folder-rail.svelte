@@ -16,6 +16,7 @@
 	import Logout01Icon from '@hugeicons/core-free-icons/Logout01Icon';
 	import Globe02Icon from '@hugeicons/core-free-icons/Globe02Icon';
 	import Book02Icon from '@hugeicons/core-free-icons/Book02Icon';
+	import Download04Icon from '@hugeicons/core-free-icons/Download04Icon';
 
 	import { toggleMode, mode } from 'mode-watcher';
 	import { toast } from 'svelte-sonner';
@@ -77,6 +78,10 @@
 		folderNameLabel: string;
 		deleteTitle: (name: string) => string;
 		deleteBody: string;
+		checkForUpdates: string;
+		checkingUpdates: string;
+		updateCheckFailed: string;
+		noServiceWorker: string;
 	}> = {
 		en: {
 			foldersNav: 'Folders',
@@ -117,7 +122,11 @@
 			renameBody: 'Choose a new name for this folder.',
 			folderNameLabel: 'Folder name',
 			deleteTitle: (name) => `Delete “${name}”?`,
-			deleteBody: 'The folder is removed, but its notes are kept and moved to All Notes.'
+			deleteBody: 'The folder is deleted, but its notes remain and are moved to All Notes.',
+			checkForUpdates: 'Check for updates',
+			checkingUpdates: 'Checking for updates...',
+			updateCheckFailed: 'Failed to check for updates',
+			noServiceWorker: 'App is offline or not installed'
 		},
 		id: {
 			foldersNav: 'Folder',
@@ -158,7 +167,12 @@
 			renameBody: 'Pilih nama baru untuk folder ini.',
 			folderNameLabel: 'Nama folder',
 			deleteTitle: (name) => `Hapus “${name}”?`,
-			deleteBody: 'Foldernya dihapus, tetapi catatannya tetap ada dan dipindahkan ke Semua Catatan.'
+			deleteBody:
+				'Foldernya dihapus, tetapi catatannya tetap ada dan dipindahkan ke Semua Catatan.',
+			checkForUpdates: 'Cek pembaruan',
+			checkingUpdates: 'Memeriksa pembaruan...',
+			updateCheckFailed: 'Gagal memeriksa pembaruan',
+			noServiceWorker: 'Aplikasi sedang offline atau belum diinstal'
 		}
 	};
 	const t = $derived(DICT[locale.current]);
@@ -239,6 +253,27 @@
 		if (selected === deleting.id) onselect(null);
 		notes.deleteFolder(deleting.id);
 		deleting = null;
+	}
+
+	let checkingUpdate = $state(false);
+	async function checkForUpdates() {
+		checkingUpdate = true;
+		toast.loading(t.checkingUpdates, { id: 'update-check' });
+		try {
+			const reg = await navigator.serviceWorker?.getRegistration();
+			if (reg) {
+				await reg.update();
+				toast.dismiss('update-check');
+			} else {
+				toast.dismiss('update-check');
+				toast.error(t.noServiceWorker);
+			}
+		} catch {
+			toast.dismiss('update-check');
+			toast.error(t.updateCheckFailed);
+		} finally {
+			checkingUpdate = false;
+		}
 	}
 
 	const itemClass =
@@ -488,6 +523,16 @@
 		>
 			<HugeiconsIcon icon={Book02Icon} strokeWidth={2} data-icon="inline-start" />
 			{t.docs}
+		</Button>
+		<Button
+			variant="ghost"
+			size="sm"
+			class="w-full justify-start"
+			onclick={checkForUpdates}
+			disabled={checkingUpdate}
+		>
+			<HugeiconsIcon icon={Download04Icon} strokeWidth={2} data-icon="inline-start" />
+			{t.checkForUpdates}
 		</Button>
 		<div class="flex items-center gap-1">
 			<Button variant="ghost" size="sm" class="flex-1 justify-start" onclick={onshortcuts}>

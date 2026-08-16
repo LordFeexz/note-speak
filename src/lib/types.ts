@@ -96,6 +96,7 @@ function plainify(line: string): string {
  * the cost proportional to the prose.
  */
 export function searchableText(body: string): string {
+	if (typeof body !== 'string') return '';
 	return body
 		.replace(/data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, '')
 		.replace(/^:::[a-zA-Z][\w-]*(\{.*\})?$/gm, '')
@@ -112,7 +113,8 @@ export function searchableText(body: string): string {
  * the English default.
  */
 export function noteTitle(note: Note, fallback = 'New Note'): string {
-	const line = note.body.split('\n').find((l) => l.trim().length > 0);
+	const body = typeof note.body === 'string' ? note.body : '';
+	const line = body.split('\n').find((l) => l.trim().length > 0);
 	return plainify(line ?? '').slice(0, 120) || fallback;
 }
 
@@ -124,7 +126,8 @@ export function noteTitle(note: Note, fallback = 'New Note'): string {
  * enough text to fill them.
  */
 export function notePreview(note: Note, chars = 160, fallback = 'No additional text'): string {
-	const lines = note.body.split('\n');
+	const body = typeof note.body === 'string' ? note.body : '';
+	const lines = body.split('\n');
 	const titleIndex = lines.findIndex((l) => l.trim().length > 0);
 	if (titleIndex === -1) return fallback;
 	const rest = lines
