@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { defineConfig, type PluginOption } from 'vite';
 import { attachSignaling } from './server/signaling.js';
 
@@ -28,6 +29,9 @@ export default defineConfig({
 	plugins: [
 		signalingDev(),
 		tailwindcss(),
+		nodePolyfills({
+			include: ['events', 'stream', 'buffer', 'util']
+		}),
 		sveltekit({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
@@ -136,5 +140,8 @@ export default defineConfig({
 				navigateFallback: '/app'
 			}
 		})
-	]
+	],
+	resolve: {
+		dedupe: ['yjs', '@tiptap/core', '@tiptap/pm']
+	}
 });
