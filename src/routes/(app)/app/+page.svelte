@@ -206,7 +206,7 @@
 		selectNote(id);
 	}
 
-	function createNote(body = '') {
+	function createNote(body?: string) {
 		if (folderId === 'trash') folderId = null;
 		notes.query = '';
 		const inWorkspace =
@@ -217,7 +217,7 @@
 		const created = notes.createNote(
 			typeof folderId === 'string' && !inWorkspace ? folderId : null
 		);
-		if (body) notes.updateBody(created.id, body);
+		if (typeof body === 'string' && body) notes.updateBody(created.id, body);
 		// Shared from birth: creating it here means it is meant for the workspace.
 		if (inWorkspace) void workspaces.addNote(inWorkspace, created);
 		noteId = created.id;
