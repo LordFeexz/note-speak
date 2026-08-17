@@ -169,6 +169,11 @@
 	});
 
 	function selectFolder(next: string | null | 'trash') {
+		// Flush current note before switching to prevent content loss
+		if (noteId) {
+			const current = notes.getNote(noteId);
+			if (current) void history.commit(current.id, current.body);
+		}
 		folderId = next;
 		foldersSheetOpen = false;
 		notes.query = '';

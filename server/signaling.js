@@ -1,4 +1,10 @@
 import { WebSocketServer } from 'ws';
+import { registerSubscription, unregisterSubscription, wakeSubscribers } from './push.js';
+
+// Ephemeral in-memory buffer
+const relayBuffers = new Map(); // topic → { entries, updatedAt }
+const MAX_RELAY_BYTES = 8 * 1024 * 1024;
+const RELAY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Signaling gateway.
@@ -30,6 +36,14 @@ export function attachSignaling(server, { path = '/signal' } = {}) {
 	const wss = new WebSocketServer({ noServer: true });
 	/** @type {Map<string, Set<import('ws').WebSocket>>} */
 	const topics = new Map();
+
+	const cleanupTimer = setInterval(() => {
+		const cutoff = Date.now() - RELAY_TTL_MS;
+		for (const [id, buf] of relayBuffers) {
+			if (buf.updatedAt < cutoff) relayBuffers.delete(id);
+		}
+	}, 60_000);
+	cleanupTimer.unref?.();
 
 	server.on(
 		'upgrade',
@@ -88,6 +102,41 @@ export function attachSignaling(server, { path = '/signal' } = {}) {
 				// Remembered only so the room can be told *which* peer left; it is a
 				// client-chosen random id, not an identity.
 				if (typeof message.from === 'string') peerId = message.from;
+				return;
+			}
+
+			if (message.type === 'push-subscribe') {
+				registerSubscription(topic, message.subscription);
+				return;
+			}
+			if (message.type === 'push-unsubscribe') {
+				unregisterSubscription(topic, message.subscription);
+				return;
+			}
+
+			if (message.type === 'relay-push') {
+				let buf = relayBuffers.get(topic);
+				if (!buf) relayBuffers.set(topic, (buf = { entries: [], updatedAt: 0 }));
+				for (const entry of message.entries ?? []) {
+					if (entry.snap) buf.entries = []; // Snapshot replaces all
+					buf.entries.push(entry);
+				}
+				// Enforce byte cap
+				while (JSON.stringify(buf.entries).length > MAX_RELAY_BYTES && buf.entries.length > 1) {
+					buf.entries.shift();
+				}
+				buf.updatedAt = Date.now();
+				return;
+			}
+
+			if (message.type === 'relay-pull') {
+				const buf = relayBuffers.get(topic);
+				if (buf?.entries?.length) {
+					ws.send(JSON.stringify({ type: 'relay-entries', topic, entries: buf.entries }));
+				} else {
+					ws.send(JSON.stringify({ type: 'relay-entries', topic, entries: [] }));
+					void wakeSubscribers(topic);
+				}
 				return;
 			}
 

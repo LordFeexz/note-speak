@@ -13,6 +13,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import { notes } from '$lib/stores/notes.svelte';
 	import { buildShareUrl, createShare } from '$lib/share/crypto';
+	import { signalingUrl } from '$lib/share/session';
 	import type { Note } from '$lib/types';
 	import { locale } from '$lib/i18n/locale.svelte';
 	import type { Dict } from '$lib/i18n/dict';
@@ -48,6 +49,8 @@
 		confirmStopBody: string;
 		cancel: string;
 		reissueAction: string;
+		signalErrorTitle: string;
+		signalErrorBody: string;
 	}> = {
 		en: {
 			title: 'Share this note',
@@ -85,7 +88,9 @@
 			confirmStopBody:
 				"The links stop working and you keep your copy. Anyone who already opened the note keeps the copy on their own device — that can't be taken back.",
 			cancel: 'Cancel',
-			reissueAction: 'Reissue'
+			reissueAction: 'Reissue',
+			signalErrorTitle: 'Signaling server unreachable',
+			signalErrorBody: 'Sharing links will not work until the WebSocket server is running. If you are on a VPS, ensure your reverse proxy supports WebSocket upgrades.'
 		},
 		id: {
 			title: 'Bagikan catatan ini',
@@ -124,7 +129,9 @@
 			confirmStopBody:
 				'Tautannya berhenti bekerja dan salinan Anda tetap ada. Siapa pun yang sudah membuka catatannya tetap menyimpan salinan di perangkat mereka sendiri — itu tidak bisa ditarik kembali.',
 			cancel: 'Batal',
-			reissueAction: 'Terbitkan ulang'
+			reissueAction: 'Terbitkan ulang',
+			signalErrorTitle: 'Server sinyal tidak dapat dihubungi',
+			signalErrorBody: 'Tautan berbagi tidak akan berfungsi sampai server WebSocket berjalan. Jika Anda menggunakan VPS, pastikan reverse proxy Anda mendukung WebSocket upgrade.'
 		}
 	};
 	const t = $derived(DICT[locale.current]);
@@ -140,6 +147,18 @@
 	const origin = $derived(typeof location === 'undefined' ? '' : location.origin);
 	const editUrl = $derived(share ? buildShareUrl(origin, share, true) : '');
 	const viewUrl = $derived(share ? buildShareUrl(origin, share, false) : '');
+
+	let wsHealthy = $state<boolean | null>(null);
+
+	$effect(() => {
+		if (!open || share) return;
+		wsHealthy = null;
+		const ws = new WebSocket(signalingUrl());
+		const timeout = setTimeout(() => { ws.close(); wsHealthy = false; }, 5000);
+		ws.onopen = () => { clearTimeout(timeout); wsHealthy = true; ws.close(); };
+		ws.onerror = () => { clearTimeout(timeout); wsHealthy = false; };
+		return () => { clearTimeout(timeout); ws.close(); };
+	});
 
 	async function startSharing() {
 		if (!note || busy) return;
@@ -190,6 +209,13 @@
 				<Alert.Title>{t.needsOnlineTitle}</Alert.Title>
 				<Alert.Description>{t.needsOnlineBody}</Alert.Description>
 			</Alert.Root>
+			{#if wsHealthy === false}
+				<Alert.Root variant="destructive">
+					<HugeiconsIcon icon={Alert02Icon} strokeWidth={2} />
+					<Alert.Title>{t.signalErrorTitle}</Alert.Title>
+					<Alert.Description>{t.signalErrorBody}</Alert.Description>
+				</Alert.Root>
+			{/if}
 			<Button onclick={startSharing} disabled={busy}>
 				<HugeiconsIcon icon={Share08Icon} strokeWidth={2} data-icon="inline-start" />
 				{busy ? t.starting : t.start}

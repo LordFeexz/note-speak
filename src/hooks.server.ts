@@ -12,9 +12,15 @@ import { LANG, isLang } from '$lib/i18n/lang';
  * these pages are static files by the time anyone reads them.
  */
 export const handle: Handle = async ({ event, resolve }) => {
+	const now = Date.now();
 	const [, first] = event.url.pathname.split('/');
 	const lang = isLang(first) ? first : LANG.EN;
-	return resolve(event, {
+	const response = await resolve(event, {
 		transformPageChunk: ({ html }) => html.replace('%lang%', lang)
 	});
+	console.log(
+		`[${event.request.method}] ${event.url.pathname} - ${response.status} (${Date.now() - now}ms)`
+	);
+
+	return response;
 };

@@ -151,6 +151,18 @@
 	const preview = $derived(notePreview(note, isCard ? 400 : 160, t.noPreview));
 	const thumbnail = $derived(layout === 'grid' ? noteThumbnail(note) : null);
 
+	const source = $derived.by(() => {
+		if (note.workspaceId) {
+			const ws = workspaces.get(note.workspaceId);
+			return ws ? { label: ws.name, icon: UserGroupIcon } : null;
+		}
+		if (note.folderId) {
+			const folder = notes.folders.find((f) => f.id === note.folderId);
+			return folder ? { label: folder.name, icon: Folder01Icon } : null;
+		}
+		return null;
+	});
+
 	function formatDate(ts: number) {
 		const date = new Date(ts);
 		const now = new Date();
@@ -293,7 +305,7 @@
 				alt=""
 				loading="lazy"
 				decoding="async"
-				class="aspect-[16/10] w-full shrink-0 object-cover"
+				class="aspect-16/10 w-full shrink-0 object-cover"
 			/>
 		{/if}
 
@@ -322,9 +334,23 @@
 				>
 					{#if isCard}
 						<span class="line-clamp-3 text-pretty">{preview}</span>
-						<span class="mt-auto tabular-nums">{formatDate(note.updatedAt)}</span>
+						<span class="mt-auto flex items-center justify-between gap-2">
+							<span class="tabular-nums">{formatDate(note.updatedAt)}</span>
+							{#if source}
+								<span class="inline-flex items-center gap-1 text-muted-foreground/70">
+									<HugeiconsIcon icon={source.icon} strokeWidth={2} class="size-3 shrink-0" />
+									<span class="max-w-20 truncate">{source.label}</span>
+								</span>
+							{/if}
+						</span>
 					{:else}
 						<span class="shrink-0 tabular-nums">{formatDate(note.updatedAt)}</span>
+						{#if source}
+							<span class="inline-flex shrink-0 items-center gap-1 text-muted-foreground/70">
+								<HugeiconsIcon icon={source.icon} strokeWidth={2} class="size-3 shrink-0" />
+								<span class="max-w-20 truncate">{source.label}</span>
+							</span>
+						{/if}
 						<span class="truncate">{preview}</span>
 					{/if}
 				</span>

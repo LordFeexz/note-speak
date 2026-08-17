@@ -269,7 +269,7 @@
 	 * layout change instead of tearing every row down and rebuilding it.
 	 */
 	const rendered = $derived.by(() => {
-		if (effective !== 'grouped')
+		if (effective !== 'grouped' && effective !== 'rows')
 			return list.map((note, index) => ({ kind: 'note' as const, note, index }));
 		const out: ({ kind: 'note'; note: Note; index: number } | { kind: 'header'; label: string })[] =
 			[];
@@ -416,7 +416,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col glass">
-	<header class="flex flex-col gap-2 px-3 pt-3 safe-t pb-2">
+	<header class="flex flex-col gap-2 px-3 safe-t pb-2">
 		<div class="flex items-center gap-1">
 			{#if compact}
 				<Button variant="ghost" size="icon-sm" onclick={onopenfolders} aria-label={t.showFolders}>

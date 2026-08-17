@@ -15,6 +15,8 @@
 	import Clock01Icon from '@hugeicons/core-free-icons/Clock01Icon';
 	import PlusSignIcon from '@hugeicons/core-free-icons/PlusSignIcon';
 	import ArrowDown01Icon from '@hugeicons/core-free-icons/ArrowDown01Icon';
+	import UndoIcon from '@hugeicons/core-free-icons/UndoIcon';
+	import RedoIcon from '@hugeicons/core-free-icons/RedoIcon';
 
 	import { toast } from 'svelte-sonner';
 	import { Button } from '$lib/components/ui/button';
@@ -488,6 +490,11 @@
 		// Switching notes ends the previous note's editing session.
 		const previous = loadedId;
 		if (previous) {
+			// Flush collab editor content before switching away
+			if (collabEditor) {
+				const md = getMarkdown(collabEditor);
+				if (md) notes.updateBody(previous, md);
+			}
 			const body = notes.getNote(previous)?.body;
 			if (body !== undefined) void history.commit(previous, body);
 		}
@@ -769,7 +776,11 @@
 			<CollabEditor
 				link={shareLink}
 				{identity}
-				onmarkdown={(markdown) => note && notes.updateBody(note.id, markdown)}
+				onmarkdown={(markdown) => {
+					if (!note) return;
+					notes.updateBody(note.id, markdown);
+					workspaces.touchTitle(note);
+				}}
 				oneditor={(instance) => (collabEditor = instance)}
 				{...{
 					/*
@@ -881,6 +892,28 @@
 			</DropdownMenu.Root>
 
 			<span class="flex-1"></span>
+			<div class="flex items-center gap-0.5">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-label="Undo"
+					disabled={!target()?.can().undo()}
+					onclick={() => target()?.chain().focus().undo().run()}
+					class="text-muted-foreground"
+				>
+					<HugeiconsIcon icon={UndoIcon} strokeWidth={2} />
+				</Button>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-label="Redo"
+					disabled={!target()?.can().redo()}
+					onclick={() => target()?.chain().focus().redo().run()}
+					class="text-muted-foreground"
+				>
+					<HugeiconsIcon icon={RedoIcon} strokeWidth={2} />
+				</Button>
+			</div>
 			<!--
 				Quick toggles for the three most-used list types. Hidden below `sm`:
 				the editor pane is 390px wide on a phone, where these plus the two

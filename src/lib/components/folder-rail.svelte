@@ -286,7 +286,7 @@
 		The header holds no controls: inside the mobile Sheet the focus trap lands on
 		the first focusable child, and a theme toggle there popped its own tooltip on open.
 	-->
-	<header class="flex items-center gap-1 px-3 pt-3 safe-t pb-2 {inSheet ? 'min-h-12 pr-12' : ''}">
+	<header class="flex items-center gap-1 px-3 safe-t pb-2 {inSheet ? 'min-h-12 pr-12' : ''}">
 		<h1 class="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
 			Note Speak
 		</h1>

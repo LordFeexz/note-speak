@@ -14,6 +14,7 @@ import {
 	newSalt,
 	type WorkspaceKeys
 } from './keys';
+import { subscribeToPush } from '$lib/push/subscription';
 
 /**
  * Workspaces: a shared note *list*, with no server-side record of it.
@@ -225,6 +226,17 @@ class WorkspaceStore {
 			const meta = doc.getMap<string>('meta');
 			if (!meta.get('name')) meta.set('name', seedName);
 		}
+
+		// Register push subscriptions for all workspace note topics
+		persistence.once('synced', () => {
+			const topics = entriesOf(doc)
+				.toArray()
+				.map((e) => e.docId)
+				.filter(Boolean);
+			if (topics.length > 0) {
+				void subscribeToPush(topics);
+			}
+		});
 	}
 
 	/** Mirror the index into the local note list. */

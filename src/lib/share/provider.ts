@@ -260,6 +260,9 @@ export class SignedDocProvider {
 			socket.send(
 				JSON.stringify({ type: 'announce', topic: this.#link.docId, from: this.#selfId })
 			);
+			socket.send(
+				JSON.stringify({ type: 'relay-pull', topic: this.#link.docId })
+			);
 			this.#setStatus(this.#peers.size ? 'connected' : 'waiting');
 		};
 
@@ -278,12 +281,24 @@ export class SignedDocProvider {
 	}
 
 	async #onSignal(event: MessageEvent) {
-		let message: { type: string; from?: string; to?: string; signal?: unknown };
+		let message: any;
 		try {
 			message = JSON.parse(typeof event.data === 'string' ? event.data : '');
 		} catch {
 			return;
 		}
+
+		if (message.type === 'relay-entries') {
+			if (message.entries?.length) {
+				void this.#applyEntries(message.entries);
+			} else if (this.#peers.size === 0) {
+				setTimeout(() => {
+					this.#socket?.send(JSON.stringify({ type: 'relay-pull', topic: this.#link.docId }));
+				}, 8000);
+			}
+			return;
+		}
+
 		const from = message.from;
 		if (!from || from === this.#selfId) return;
 
@@ -401,6 +416,18 @@ export class SignedDocProvider {
 
 	#broadcast(frame: Frame) {
 		for (const peer of this.#peers.values()) void this.#send(peer, frame);
+		if (frame.t === 'entries') this.#relayPush(frame.entries);
+	}
+
+	#relayPush(entries: LogEntry[]) {
+		if (!this.#socket || this.#socket.readyState !== WebSocket.OPEN) return;
+		this.#socket.send(
+			JSON.stringify({
+				type: 'relay-push',
+				topic: this.#link.docId,
+				entries
+			})
+		);
 	}
 
 	/** Reassembles chunked frames; returns the full ciphertext or null if incomplete. */
